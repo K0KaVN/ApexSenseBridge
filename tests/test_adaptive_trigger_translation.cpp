@@ -68,8 +68,9 @@ int main() {
     expectCommand({0x25, 0, 0x02, 3}, TriggerMode::SniperBreak, {154, 19, 32, 0, 0});
     expectCommand({0x25, 0x94}, TriggerMode::SniperBreak, {38, 96, 8, 0, 0});
 
-    expectCommand({0x22, 0x84, 0, 0x2B}, TriggerMode::SniperBreak, {38, 96, 32, 0, 0});
-    expectCommand({0x22, 0x04, 0, 0x07}, TriggerMode::SniperBreak, {38, 20, 64, 0, 0});
+    expectCommand({0x22, 0x84, 0, 0x2B}, TriggerMode::Race, {38, 32, 0, 0, 0});
+    expectCommand({0x22, 0x01, 0x02, 0x39}, TriggerMode::Race, {0, 16, 0, 0, 0});
+    expectCommand({0x22, 0x04, 0, 0x07}, TriggerMode::Race, {38, 64, 0, 0, 0});
     expectCommand({0x22}, TriggerMode::Normal, {});
     expectCommand({0x23, 0x04, 0x02, 0x21, 20}, TriggerMode::RecoilRattle, {38, 1, 60, 20, 0});
     expectCommand({0x23, 0x04, 0x02, 0x21, 0}, TriggerMode::Normal, {});

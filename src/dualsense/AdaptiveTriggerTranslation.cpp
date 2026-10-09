@@ -54,7 +54,11 @@ std::optional<ForceTriggerCommand> translateNativeTrigger(
     const auto zones = scanZones(mask);
     const auto start = strokeForZone(zones.first);
     switch (effect[0]) {
-    case 0x22:
+    case 0x22: {
+        // Bow is a draw resistance; a SniperBreak clicked like a gun trigger (NTE throttle).
+        const auto resistance = static_cast<std::uint8_t>(((effect[3] & 0x07U) + 1U) * 8U);
+        return make(side, TriggerMode::Race, {start, resistance, 0, 0, 0});
+    }
     case 0x25:
         return makeBreak(side, zones, (effect[3] & 0x07U) + 1U);
     case 0x23:

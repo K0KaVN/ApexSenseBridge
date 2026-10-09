@@ -298,8 +298,8 @@ void testUnsupportedKeepsActiveEffect(bool apex4) {
     assert(stats.rightBlocks[1] == "en=04 fx=FC 01 02 03 00 00 00 00 00 00 00");
     feedback.rightTriggerEffect = {0x22, 0x84, 0, 0x2B};
     bridge.handle(feedback);
-    expectReport(*transport, apex4, TriggerSide::Right, TriggerMode::SniperBreak,
-                 {38, 96, 32, 0, 0});
+    expectReport(*transport, apex4, TriggerSide::Right, TriggerMode::Race,
+                 {38, 32, 0, 0, 0});
 }
 
 }

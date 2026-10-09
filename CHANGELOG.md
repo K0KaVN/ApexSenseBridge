@@ -4,9 +4,11 @@
 
 ### Adaptive triggers on APEX 4/5 ([#35](https://github.com/ReynArts/ApexSenseBridge/issues/35), [#38](https://github.com/ReynArts/ApexSenseBridge/issues/38), [#22](https://github.com/ReynArts/ApexSenseBridge/issues/22), [#23](https://github.com/ReynArts/ApexSenseBridge/issues/23))
 
-- New DualSense effect translations: `0x22` Bow and `0x25` Weapon with one or
-  three+ zones (SniperBreak), `0x23` Galloping and `0x27` Machine
-  (RecoilRattle), `0x11`/`0x12` limited variants (Race/SniperBreak).
+- New DualSense effect translations: `0x22` Bow as a draw resistance (Race;
+  a break felt like a gun click on the Neverness to Everness throttle),
+  `0x25` Weapon with one or three+ zones (SniperBreak), `0x23` Galloping and
+  `0x27` Machine (RecoilRattle), `0x11`/`0x12` limited variants
+  (Race/SniperBreak).
 - Empty blocks and unsupported effects (`0xFC`, unknown modes, invalid zones)
   keep the current effect, like a DualSense. Call of Duty interleaves empty
   blocks with its weapon effect; releasing on them made the trigger reset
