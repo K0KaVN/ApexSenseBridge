@@ -86,6 +86,8 @@
   "Loc_PillTriggers": "自适应扳机",
   "Loc_PillHaptics": "触觉反馈",
   "Loc_PillManualFix": "手动修复",
+  "Loc_PillManualFixApplied": "已应用手动修复",
+  "Loc_ManualFixAppliedHint": "你已将此游戏的手动修复标记为已应用。桥接将自动启动。",
   "Loc_ManualFixHint": "此游戏的 DualSense 功能需要第三方模组或手动配置。当没有可直接使用的功能时，将禁用自动启动。",
   "Loc_BtnManualFixAllow": "允许自动启动",
   "Loc_BtnManualFixBlock": "停止自动启动",

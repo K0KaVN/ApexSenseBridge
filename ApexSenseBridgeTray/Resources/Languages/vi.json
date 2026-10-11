@@ -86,6 +86,8 @@
   "Loc_PillTriggers": "Cò thích ứng",
   "Loc_PillHaptics": "Xúc giác",
   "Loc_PillManualFix": "Sửa thủ công",
+  "Loc_PillManualFixApplied": "Đã áp dụng sửa thủ công",
+  "Loc_ManualFixAppliedHint": "Bạn đã đánh dấu bản sửa thủ công của trò chơi này là đã áp dụng. Cầu nối sẽ tự động kích hoạt.",
   "Loc_ManualFixHint": "Tính năng DualSense của trò chơi này cần sửa đổi của bên thứ ba hoặc cấu hình thủ công. Tự động kích hoạt sẽ tắt khi không có tính năng nào sẵn sàng.",
   "Loc_BtnManualFixAllow": "Cho phép tự động kích hoạt",
   "Loc_BtnManualFixBlock": "Dừng tự động kích hoạt",

@@ -86,6 +86,8 @@
   "Loc_PillTriggers": "Triggers",
   "Loc_PillHaptics": "Haptics",
   "Loc_PillManualFix": "Manual fix",
+  "Loc_PillManualFixApplied": "Manual fix applied",
+  "Loc_ManualFixAppliedHint": "You marked this game's manual fix as applied. The bridge activates automatically for it.",
   "Loc_ManualFixHint": "This game's DualSense features require a third-party modification or manual configuration. Automatic activation is disabled when no ready feature is available.",
   "Loc_BtnManualFixAllow": "Allow automatic activation",
   "Loc_BtnManualFixBlock": "Stop automatic activation",

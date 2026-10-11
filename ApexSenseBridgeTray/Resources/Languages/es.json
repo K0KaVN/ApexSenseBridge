@@ -86,6 +86,8 @@
   "Loc_PillTriggers": "Gatillos",
   "Loc_PillHaptics": "Háptica",
   "Loc_PillManualFix": "Corrección manual",
+  "Loc_PillManualFixApplied": "Corrección manual aplicada",
+  "Loc_ManualFixAppliedHint": "Marcaste la corrección manual de este juego como aplicada. El puente se activa automáticamente.",
   "Loc_ManualFixHint": "Las funciones DualSense de este juego requieren una modificación de terceros o una configuración manual. La activación automática se deshabilita cuando no hay ninguna función compatible directamente.",
   "Loc_BtnManualFixAllow": "Permitir la activación automática",
   "Loc_BtnManualFixBlock": "Detener la activación automática",

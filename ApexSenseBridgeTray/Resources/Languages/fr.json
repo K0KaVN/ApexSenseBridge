@@ -86,6 +86,8 @@
   "Loc_PillTriggers": "Gâchettes",
   "Loc_PillHaptics": "Haptique",
   "Loc_PillManualFix": "Correctif manuel",
+  "Loc_PillManualFixApplied": "Correctif manuel appliqué",
+  "Loc_ManualFixAppliedHint": "Vous avez indiqué que le correctif manuel de ce jeu est appliqué. Le pont s’active automatiquement.",
   "Loc_ManualFixHint": "Les fonctions DualSense de ce jeu nécessitent une modification tierce ou une configuration manuelle. L’activation automatique est désactivée lorsqu’aucune fonction n’est directement compatible.",
   "Loc_BtnManualFixAllow": "Autoriser l’activation automatique",
   "Loc_BtnManualFixBlock": "Arrêter l’activation automatique",

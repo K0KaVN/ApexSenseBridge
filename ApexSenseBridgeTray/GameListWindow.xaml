@@ -528,8 +528,12 @@
                                                             <TextBlock Text="{DynamicResource Loc_BadgeNew}" FontSize="10.5" Foreground="White" FontWeight="Bold"/>
                                                         </Border>
                                                         <Border Style="{StaticResource StatusTag}" Background="#26F59E0B"
-                                                                ToolTip="{DynamicResource Loc_ManualFixHint}" Visibility="{Binding ManualFixVisibility}">
+                                                                ToolTip="{DynamicResource Loc_ManualFixHint}" Visibility="{Binding ManualFixPendingVisibility}">
                                                             <TextBlock Text="{DynamicResource Loc_PillManualFix}" FontSize="10.5" Foreground="#FBBF24" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <Border Style="{StaticResource StatusTag}" Background="#2634D399"
+                                                                ToolTip="{DynamicResource Loc_ManualFixAppliedHint}" Visibility="{Binding ManualFixAppliedVisibility}">
+                                                            <TextBlock Text="{DynamicResource Loc_PillManualFixApplied}" FontSize="10.5" Foreground="{DynamicResource BadgeActiveFg}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                         </Border>
                                                         <Border Style="{StaticResource StatusTag}" Background="#26EF4444"
                                                                 Visibility="{Binding ExcludedBadgeVisibility}">
@@ -604,6 +608,10 @@
                                                     <Border x:Name="BadgeDetailManualFix" Style="{StaticResource FeaturePill}" Background="#26F59E0B"
                                                             ToolTip="{DynamicResource Loc_ManualFixHint}" Visibility="Collapsed">
                                                         <TextBlock Text="{DynamicResource Loc_PillManualFix}" Style="{StaticResource FeaturePillText}" Foreground="#FBBF24" FontWeight="SemiBold"/>
+                                                    </Border>
+                                                    <Border x:Name="BadgeDetailManualFixApplied" Style="{StaticResource FeaturePill}" Background="#2634D399"
+                                                            ToolTip="{DynamicResource Loc_ManualFixAppliedHint}" Visibility="Collapsed">
+                                                        <TextBlock Text="{DynamicResource Loc_PillManualFixApplied}" Style="{StaticResource FeaturePillText}" Foreground="{DynamicResource BadgeActiveFg}" FontWeight="SemiBold"/>
                                                     </Border>
                                                     <Border x:Name="BadgeDetailTouchpad" Style="{StaticResource FeaturePill}" Visibility="Collapsed">
                                                         <StackPanel Orientation="Horizontal">
