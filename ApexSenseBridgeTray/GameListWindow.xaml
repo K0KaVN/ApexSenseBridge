@@ -640,7 +640,7 @@
                                         </Border>
 
                                         <Button x:Name="BtnDetailToggleExclude" Style="{StaticResource BtnSecondary}"
-                                                MinHeight="42" Padding="14,0" HorizontalAlignment="Stretch" Margin="0,0,0,18"
+                                                MinHeight="42" Padding="14,0" HorizontalAlignment="Stretch" Margin="0,0,0,10"
                                                 Click="OnDetailToggleExcludeClick">
                                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                                 <Border Style="{StaticResource XboxBtnX}" Margin="0,0,8,0">
@@ -649,6 +649,14 @@
                                                 <TextBlock x:Name="TxtDetailExcludeAction" Text="{DynamicResource Loc_BtnExcludeCurrent}"
                                                            FontSize="12.5" VerticalAlignment="Center"/>
                                             </StackPanel>
+                                        </Button>
+
+                                        <Button x:Name="BtnDetailToggleManualFix" Style="{StaticResource BtnSecondary}"
+                                                MinHeight="42" Padding="14,0" HorizontalAlignment="Stretch" Margin="0,0,0,18"
+                                                ToolTip="{DynamicResource Loc_ManualFixAllowHint}" Visibility="Collapsed"
+                                                Click="OnDetailToggleManualFixClick">
+                                            <TextBlock x:Name="TxtDetailManualFixAction" Text="{DynamicResource Loc_BtnManualFixAllow}"
+                                                       FontSize="12.5" VerticalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
                                         </Button>
 
                                         <!-- Advanced: optional executable association -->

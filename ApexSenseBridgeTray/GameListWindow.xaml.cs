@@ -1839,6 +1839,22 @@ namespace ApexSenseBridgeTray
                     ? LocalizationManager.Get("Loc_StateIncluded")
                     : LocalizationManager.Get("Loc_BtnExcludeCurrent");
             }
+
+            if (BtnDetailToggleManualFix != null)
+            {
+                BtnDetailToggleManualFix.Visibility = game.ManualFixVisibility;
+                if (BtnDetailToggleExclude != null)
+                {
+                    BtnDetailToggleExclude.Margin = new Thickness(0, 0, 0, game.RequiresManualFix ? 10 : 18);
+                }
+            }
+            if (TxtDetailManualFixAction != null)
+            {
+                TxtDetailManualFixAction.Text = LocalizationManager.Get(
+                    settings != null && settings.IsManualFixAllowed(game.Normalized)
+                        ? "Loc_BtnManualFixBlock"
+                        : "Loc_BtnManualFixAllow");
+            }
         }
 
         private void UpdateExecutableChoices()
@@ -1928,6 +1944,18 @@ namespace ApexSenseBridgeTray
         private void OnDetailToggleExcludeClick(object sender, RoutedEventArgs e)
         {
             ToggleCurrentGameExclusion();
+        }
+
+        private void OnDetailToggleManualFixClick(object sender, RoutedEventArgs e)
+        {
+            var game = SelectedGame;
+            if (game == null || settings == null || !game.RequiresManualFix) return;
+
+            settings.SetManualFixAllowed(
+                game.Normalized, !settings.IsManualFixAllowed(game.Normalized));
+            settings.Save();
+            UpdateDetailPane();
+            monitorService?.ForceCheck();
         }
 
         private void ToggleCurrentGameExclusion()
