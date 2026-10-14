@@ -4,10 +4,10 @@
 
 ## 1.0.2
 
-### Activation automatique des correctifs manuels ([#46](https://github.com/ReynArts/ApexSenseBridge/pull/46))
+### Automatic activation for manual fixes ([#46](https://github.com/ReynArts/ApexSenseBridge/pull/46))
 
-- Les jeux ayant un correctif manuel compatible peuvent désormais être activés
-  automatiquement. Le Tray affiche le correctif appliqué avec un badge vert.
+- Games with a compatible manual fix can now be activated automatically. The
+  Tray shows the applied fix with a green badge.
 
 ### Pending APEX 5 restore no longer blocks sessions ([#44](https://github.com/ReynArts/ApexSenseBridge/issues/44), [#45](https://github.com/ReynArts/ApexSenseBridge/issues/45))
 
