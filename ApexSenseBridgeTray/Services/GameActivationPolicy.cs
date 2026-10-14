@@ -26,6 +26,11 @@ namespace ApexSenseBridgeTray.Services
                     (fixApplied || !game.HapticFeedbackManualFix));
         }
 
+        public static bool CanToggleManualFix(SupportedGame game, bool isExcluded)
+        {
+            return game != null && game.RequiresManualFix && !isExcluded;
+        }
+
         public static bool IsBlockedByManualFix(
             SupportedGame game,
             TraySettings settings,
