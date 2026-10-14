@@ -120,6 +120,4 @@ jobs:
             dist/*.pext
           generate_release_notes: false
           draft: false
-          # Publish the 1.0.2 validation build as a pre-release; future tags
-          # continue to use semantic-version prerelease labels.
           prerelease: ${{ github.ref_name == 'v1.0.2' || contains(github.ref_name, '-') }}
