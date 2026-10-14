@@ -487,7 +487,9 @@ namespace ApexSenseBridgeTray.Services
         private static string BuildArguments(string profileName, TraySettings settings,
                                              int apexProfileSlot)
         {
-            var arguments = BridgeArguments.Build(profileName, false, 12, false, apexProfileSlot);
+            var arguments = BridgeArguments.Build(
+                profileName, false, 12, false, apexProfileSlot,
+                zoneEmulation: settings == null || settings.ZoneEmulation);
             // Send all model profiles; only the engine's verified device selects
             // one. A stale UI label / hot swap can never select another model's data.
             return arguments + (settings != null ? settings.BuildControllerCalibrationArguments() : string.Empty);

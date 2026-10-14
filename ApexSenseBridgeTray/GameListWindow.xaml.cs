@@ -475,7 +475,7 @@ namespace ApexSenseBridgeTray
             // Only the capabilities of the identified controller are shown (and therefore navigable).
             var items = new FrameworkElement[]
             {
-                TileSettingSyncLightbar, RowTriggerStrength, RowVibrationStrength,
+                TileSettingSyncLightbar, TileSettingZoneEmulation, RowTriggerStrength, RowVibrationStrength,
                 RowGyroStrength, RowGyroYawStrength, RowVibrationThreshold, RowGripVibrations
             }.Where(item => item != null);
             return (navigableOnly ? items.Where(IsNavigable) : items).ToArray();
@@ -1043,6 +1043,7 @@ namespace ApexSenseBridgeTray
                 else if (item == TileSettingHaptic) OnSettingHapticToggled(null, null);
                 else if (item == TileSettingNotifications) OnSettingNotificationsToggled(null, null);
                 else if (item == TileSettingSyncLightbar) OnSettingSyncLightbarToggled(null, null);
+                else if (item == TileSettingZoneEmulation) OnSettingZoneEmulationToggled(null, null);
                 else if (item == TileSettingLanguage) OpenLanguagePicker();
                 else if (item == RowGripVibrations) ToggleGripVibrations();
                 else if (item is Button button) button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -2199,6 +2200,8 @@ namespace ApexSenseBridgeTray
             TileSettingSyncLightbar.IsEnabled = lastControllerStatus == "apex5";
             // Show only what the identified model supports; keep the locked message otherwise.
             TileSettingSyncLightbar.Visibility = TileSettingSyncLightbar.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+            TileSettingZoneEmulation.IsEnabled = lastControllerStatus == "apex5";
+            TileSettingZoneEmulation.Visibility = TileSettingZoneEmulation.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
             PnlControllerEffects.Visibility = canEdit ? Visibility.Visible : Visibility.Collapsed;
             PnlApex4GyroSettings.Visibility = lastControllerStatus == "apex4" ? Visibility.Visible : Visibility.Collapsed;
             PnlHapticThresholdSettings.Visibility = SliderVibrationThreshold.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
@@ -2214,6 +2217,7 @@ namespace ApexSenseBridgeTray
             UpdateSettingToggle(BadgeSettingHaptic, DotSettingHaptic, settings.TriggerOnHapticFeedback);
             UpdateSettingToggle(BadgeSettingNotifications, DotSettingNotifications, settings.EnableNotifications);
             UpdateSettingToggle(BadgeSettingSyncLightbar, DotSettingSyncLightbar, displayed.SyncLightbar);
+            UpdateSettingToggle(BadgeSettingZoneEmulation, DotSettingZoneEmulation, settings.ZoneEmulation);
 
             if (PnlSettingCriteria != null)
             {
@@ -2383,6 +2387,17 @@ namespace ApexSenseBridgeTray
             {
                 var calibration = settings.GetControllerCalibration(lastControllerStatus);
                 calibration.SyncLightbar = !calibration.SyncLightbar;
+            }
+            settings.Save();
+            UpdateSettingsView();
+        }
+
+        private void OnSettingZoneEmulationToggled(object sender, MouseButtonEventArgs e)
+        {
+            if (settings == null || lastControllerStatus != "apex5") return;
+            lock (settings)
+            {
+                settings.ZoneEmulation = !settings.ZoneEmulation;
             }
             settings.Save();
             UpdateSettingsView();

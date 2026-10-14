@@ -118,6 +118,8 @@
   "Loc_NotificationsHint": "Windows notification when the bridge is activated",
   "Loc_SyncLightbar": "DualSense Lightbar sync (RGB)",
   "Loc_SyncLightbarHint": "Synchronize controller LEDs with in-game DualSense lightbar color events",
+  "Loc_ZoneEmulation": "Trigger effect emulation",
+  "Loc_ZoneEmulationHint": "Reproduce per-zone force, vibration and rhythmic DualSense trigger effects on the APEX 5. Turn off to use the previous behavior",
   "Loc_ManualBridge": "Force continuous activation",
   "Loc_ManualBridgeHint": "Keeps the bridge active continuously without waiting for a game",
   "Loc_PreparedLaunch": "Launch a game (.exe)",

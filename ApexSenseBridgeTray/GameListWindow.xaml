@@ -974,6 +974,21 @@
                                             </DockPanel>
                                         </Border>
 
+                                        <Border x:Name="TileSettingZoneEmulation" Style="{StaticResource SettingRow}" Cursor="Hand" Visibility="Collapsed"
+                                                MouseLeftButtonDown="OnSettingZoneEmulationToggled" ToolTip="{DynamicResource Loc_ZoneEmulationHint}">
+                                            <DockPanel>
+                                                <Border x:Name="BadgeSettingZoneEmulation" DockPanel.Dock="Right" CornerRadius="12" Width="44" Height="24"
+                                                        Background="{DynamicResource ControlBackground}" BorderBrush="{DynamicResource ControlBorder}"
+                                                        BorderThickness="1.5" VerticalAlignment="Center">
+                                                    <Ellipse x:Name="DotSettingZoneEmulation" Width="16" Height="16" HorizontalAlignment="Left" Margin="3,0,0,0"
+                                                             Fill="{DynamicResource TextMuted}"/>
+                                                </Border>
+                                                <Path DockPanel.Dock="Left" Data="M 2,12 L 6,12 L 9,5 L 13,19 L 16,9 L 18,12 L 22,12"
+                                                      Style="{StaticResource IconPath}" Width="16" Height="16" Margin="0,0,12,0"/>
+                                                <TextBlock Text="{DynamicResource Loc_ZoneEmulation}" Style="{StaticResource RowLabel}"/>
+                                            </DockPanel>
+                                        </Border>
+
                                         <StackPanel x:Name="PnlControllerEffects" Visibility="Collapsed">
                                             <Border x:Name="RowTriggerStrength" Style="{StaticResource SettingRow}">
                                                 <StackPanel>

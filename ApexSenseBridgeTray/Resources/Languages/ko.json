@@ -118,6 +118,8 @@
   "Loc_NotificationsHint": "브리지가 활성화될 때 Windows 알림 표시",
   "Loc_SyncLightbar": "DualSense 라이트바 동기화 (RGB)",
   "Loc_SyncLightbarHint": "게임 내 DualSense 라이트바 색상 변화에 맞춰 컨트롤러 LED 동기화",
+  "Loc_ZoneEmulation": "트리거 효과 에뮬레이션",
+  "Loc_ZoneEmulationHint": "APEX 5에서 DualSense의 구간별 강도, 진동, 리듬형 트리거 효과를 재현합니다. 끄면 이전 동작으로 돌아갑니다",
   "Loc_ManualBridge": "강제 상시 활성화",
   "Loc_ManualBridgeHint": "게임을 기다리지 않고 브리지를 항상 활성 상태로 유지합니다.",
   "Loc_PreparedLaunch": "게임 실행 (.exe)",

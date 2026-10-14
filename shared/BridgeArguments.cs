@@ -15,7 +15,8 @@ namespace ApexSenseBridge.Common
             int triggerStrengthPercent = 100,
             int vibrationStrengthPercent = 100,
             int apex4GyroStrengthPercent = 100,
-            int apex4GyroYawStrengthPercent = 100)
+            int apex4GyroYawStrengthPercent = 100,
+            bool zoneEmulation = true)
         {
             var arguments = new List<string>
             {
@@ -44,6 +45,11 @@ namespace ApexSenseBridge.Common
             if (syncLightbar)
             {
                 arguments.Add("--sync-lightbar");
+            }
+
+            if (!zoneEmulation)
+            {
+                arguments.Add("--no-zone-emulation");
             }
 
             if (apexProfileSlot >= 1 && apexProfileSlot <= 4)

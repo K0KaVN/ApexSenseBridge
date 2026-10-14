@@ -727,6 +727,15 @@ internal static class TrayLearningTests
             "Vibration amplification was clamped before reaching the engine.");
         Assert(BridgeArguments.Build("none", true, 12, false, 0, 100, 999).Contains("--vibration-strength 200"),
             "Vibration amplification was not bounded.");
+        Assert(settings.ZoneEmulation && restored.ZoneEmulation && legacy.ZoneEmulation,
+            "Trigger emulation is not enabled by default or in legacy settings.");
+        Assert(!BridgeArguments.Build("none", true, 12, false, 0).Contains("--no-zone-emulation"),
+            "Default arguments disabled the trigger emulation.");
+        Assert(BridgeArguments.Build("none", true, 12, false, 0, zoneEmulation: false).Contains("--no-zone-emulation"),
+            "Disabling the trigger emulation did not reach the engine.");
+        settings.ZoneEmulation = false;
+        var disabledEmulation = serializer.Deserialize<TraySettings>(serializer.Serialize(settings));
+        Assert(!disabledEmulation.ZoneEmulation, "Disabled trigger emulation did not survive serialization.");
     }
 
     private static void TestControllerCalibrations()
