@@ -322,6 +322,12 @@ void testStrength(bool apex4) {
     feedback.leftTriggerEffect = {0x25, 0x84, 0, 3};
     bridge.handle(feedback);
     expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::SniperBreak, {38, 96, 16, 0, 0});
+    feedback.leftTriggerEffect = {0x22, 0x01, 0x01, 0x38};
+    bridge.handle(feedback);
+    expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::SniperBreak, {0, 154, 4, 0, 0});
+    feedback.leftTriggerEffect = {0x22, 0x01, 0x02, 0x39};
+    bridge.handle(feedback);
+    expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::Race, {0, 8, 0, 0, 0});
     feedback.leftTriggerEffect = {0x26, 0xFF, 0x03, 0xFF, 0xFF, 0xFF, 0x3F, 0, 0, 35};
     bridge.handle(feedback);
     expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::RecoilRattle, {0, 1, 40, 35, 0});

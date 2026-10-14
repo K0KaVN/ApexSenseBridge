@@ -44,6 +44,19 @@ ForceTriggerCommand makeBreak(TriggerSide side, ZoneRange zones, unsigned streng
                 {start, length, static_cast<std::uint8_t>(strength * 8U), 0, 0});
 }
 
+ForceTriggerCommand makeBow(TriggerSide side, ZoneRange zones, unsigned drawStrength,
+                            unsigned snapForce) {
+    constexpr unsigned kLastZone = 9;
+    constexpr unsigned kStrongSnap = 7;
+    const auto start = strokeForZone(zones.first);
+    const auto resistance = static_cast<std::uint8_t>(drawStrength * 8U);
+    if (zones.first >= zones.last || zones.last >= kLastZone || snapForce < kStrongSnap) {
+        return make(side, TriggerMode::Race, {start, resistance, 0, 0, 0});
+    }
+    const auto length = static_cast<std::uint8_t>(strokeForZone(zones.last) - start);
+    return make(side, TriggerMode::SniperBreak, {start, length, resistance, 0, 0});
+}
+
 std::optional<ForceTriggerCommand> translateNativeTrigger(
     TriggerSide side, const std::array<std::uint8_t, 11>& effect) {
     const auto mask = static_cast<unsigned>(effect[1]) |
@@ -54,11 +67,8 @@ std::optional<ForceTriggerCommand> translateNativeTrigger(
     const auto zones = scanZones(mask);
     const auto start = strokeForZone(zones.first);
     switch (effect[0]) {
-    case 0x22: {
-        // Bow is a draw resistance; a SniperBreak clicked like a gun trigger (NTE throttle).
-        const auto resistance = static_cast<std::uint8_t>(((effect[3] & 0x07U) + 1U) * 8U);
-        return make(side, TriggerMode::Race, {start, resistance, 0, 0, 0});
-    }
+    case 0x22:
+        return makeBow(side, zones, (effect[3] & 0x07U) + 1U, ((effect[3] >> 3U) & 0x07U) + 1U);
     case 0x25:
         return makeBreak(side, zones, (effect[3] & 0x07U) + 1U);
     case 0x23:
