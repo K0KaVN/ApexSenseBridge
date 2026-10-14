@@ -243,12 +243,20 @@ int commandBridgeTriggers(int argc, char** argv) {
         }
     }
     if (originalInputTransport) {
+        const auto flagText = [](asb::flydigi::TransportFlag flag) {
+            if (const auto value = flag.value()) return std::string(*value ? "1" : "0");
+            std::ostringstream text;
+            text << "unknown(0x" << std::hex << std::uppercase << std::setw(2)
+                 << std::setfill('0') << static_cast<unsigned>(flag.raw) << ')';
+            return text.str();
+        };
         std::cout << "Apex 5 input transport snapshot: controller_data="
                   << originalInputTransport->controllerData
                   << ", raw_data=" << originalInputTransport->rawData
-                  << ", keyboard_data=" << originalInputTransport->keyboardData
-                  << ", mouse_data=" << originalInputTransport->mouseData
-                  << ", third_party_control=" << originalInputTransport->thirdPartyControl
+                  << ", keyboard_data=" << flagText(originalInputTransport->keyboardData)
+                  << ", mouse_data=" << flagText(originalInputTransport->mouseData)
+                  << ", third_party_control="
+                  << flagText(originalInputTransport->thirdPartyControl)
                   << std::endl;
     }
     std::unique_ptr<asb::TriggerResetGuard> resetOnExit;

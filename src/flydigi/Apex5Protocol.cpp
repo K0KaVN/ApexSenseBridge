@@ -238,15 +238,13 @@ std::optional<InputTransportStatus> parseInputTransportStatus(
         !isProfileCommandReply(report, kCmdReadInputTransport)) {
         return std::nullopt;
     }
-    for (std::size_t index = 6; index <= 10; ++index) {
-        if (report[index] > 1) return std::nullopt;
-    }
+    if (report[6] > 1 || report[7] > 1) return std::nullopt;
     return InputTransportStatus{
         report[6] != 0,
         report[7] != 0,
-        report[8] != 0,
-        report[9] != 0,
-        report[10] != 0,
+        TransportFlag{report[8]},
+        TransportFlag{report[9]},
+        TransportFlag{report[10]},
     };
 }
 

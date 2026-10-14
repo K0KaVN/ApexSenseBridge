@@ -7,9 +7,11 @@
 #include "flydigi/Apex5Input.h"
 #include "flydigi/Apex5Protocol.h"
 
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <span>
 #include <string_view>
 
 int main() {
@@ -191,10 +193,64 @@ int main() {
     const auto transport = parseInputTransportStatus(transportReply);
     assert(transport);
     assert(transport->controllerData && !transport->rawData &&
-           transport->keyboardData && !transport->mouseData &&
-           !transport->thirdPartyControl);
+           transport->keyboardData.value() == true &&
+           transport->mouseData.value() == false &&
+           transport->thirdPartyControl.value() == false);
     transportReply[7] = 2;
     assert(!parseInputTransportStatus(transportReply));
+    transportReply[7] = 0;
+    transportReply[6] = 2;
+    assert(!parseInputTransportStatus(transportReply));
+    transportReply[6] = 0xFF;
+    assert(!parseInputTransportStatus(transportReply));
+
+    const std::array<std::uint8_t, 32> issue47Reply{
+        0x04, 0x5A, 0xA5, 0x10, 0x01, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x16, 0x00};
+    const auto issue47 = parseInputTransportStatus(issue47Reply);
+    assert(issue47);
+    assert(issue47->controllerData && !issue47->rawData);
+    assert(issue47->keyboardData.value() == false);
+    assert(issue47->mouseData.value() == false);
+    assert(!issue47->thirdPartyControl.value());
+    assert(issue47->thirdPartyControl.raw == 0x16);
+
+    auto issue47Readback = issue47Reply;
+    issue47Readback[7] = 1;
+    const auto readback = parseInputTransportStatus(issue47Readback);
+    assert(readback);
+    assert(readback->controllerData && readback->rawData);
+    assert(!readback->thirdPartyControl.value());
+    assert(readback->thirdPartyControl.raw == 0x16);
+    assert(readback->thirdPartyControl == issue47->thirdPartyControl);
+
+    auto unknownKeyboard = issue47Reply;
+    unknownKeyboard[8] = 2;
+    unknownKeyboard[9] = 0xFF;
+    const auto unknownFlags = parseInputTransportStatus(unknownKeyboard);
+    assert(unknownFlags);
+    assert(!unknownFlags->keyboardData.value() && unknownFlags->keyboardData.raw == 2);
+    assert(!unknownFlags->mouseData.value() && unknownFlags->mouseData.raw == 0xFF);
+    assert(unknownFlags->keyboardData != issue47->keyboardData);
+
+    auto knownThirdParty = issue47Reply;
+    knownThirdParty[10] = 1;
+    const auto owned = parseInputTransportStatus(knownThirdParty);
+    assert(owned && owned->thirdPartyControl.value() == true);
+    knownThirdParty[10] = 0;
+    const auto released = parseInputTransportStatus(knownThirdParty);
+    assert(released && released->thirdPartyControl.value() == false);
+
+    auto wrongCommand = issue47Reply;
+    wrongCommand[3] = kCmdProfileStatus;
+    assert(!parseInputTransportStatus(wrongCommand));
+    auto wrongReportId = issue47Reply;
+    wrongReportId[0] = kReportIdOut;
+    assert(!parseInputTransportStatus(wrongReportId));
+    assert(!parseInputTransportStatus(
+        std::span<const std::uint8_t>(issue47Reply).first(10)));
+    assert(parseInputTransportStatus(
+        std::span<const std::uint8_t>(issue47Reply).first(11)));
 
     std::array<std::uint8_t, 32> profileReply{};
     profileReply[0] = kReportIdIn;

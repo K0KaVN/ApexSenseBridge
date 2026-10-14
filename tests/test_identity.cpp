@@ -120,6 +120,7 @@ public:
             reply[3] = asb::flydigi::kCmdReadInputTransport;
             reply[6] = controllerData_ ? 1 : 0;
             reply[7] = rawData_ ? 1 : 0;
+            reply[10] = thirdPartyControlByte;
             replies_.push_back(std::move(reply));
         } else if (!silent_ && !apex4_ && report.size() > 6 &&
                    report[3] == asb::flydigi::kCmdSetInputTransport) {
@@ -154,6 +155,7 @@ public:
 
     std::vector<std::vector<std::uint8_t>> writes;
     std::uint8_t apex6Features = 0x9F;
+    std::uint8_t thirdPartyControlByte = 0;
     bool corruptApex6Checksum = false;
 
 private:
@@ -378,6 +380,36 @@ int main() {
     assert(accepted.readInputTransportStatus(transportStatus, error));
     assert(transportStatus.controllerData && transportStatus.rawData);
     assert(accepted.setInputTransport(true, false, error));
+
+    acceptedTransport->thirdPartyControlByte = 0x16;
+    assert(accepted.readInputTransportStatus(transportStatus, error));
+    assert(!transportStatus.thirdPartyControl.value());
+    assert(transportStatus.thirdPartyControl.raw == 0x16);
+    assert(accepted.setInputTransport(false, true, error));
+    assert(accepted.setInputTransport(true, false, error));
+    {
+        ApexMotionDiagnosticGuard motion(accepted);
+        assert(motion.enable(error));
+        assert(accepted.readInputTransportStatus(transportStatus, error));
+        assert(transportStatus.controllerData && transportStatus.rawData);
+    }
+    assert(accepted.readInputTransportStatus(transportStatus, error));
+    assert(transportStatus.controllerData && !transportStatus.rawData);
+
+    acceptedTransport->thirdPartyControlByte = 1;
+    {
+        ApexMotionDiagnosticGuard motion(accepted);
+        const auto writesBefore = acceptedTransport->writes.size();
+        error.clear();
+        assert(!motion.enable(error));
+        assert(!error.empty());
+        assert(acceptedTransport->writes.size() == writesBefore + 1);
+    }
+    assert(accepted.readInputTransportStatus(transportStatus, error));
+    assert(transportStatus.thirdPartyControl.value() == true);
+    assert(transportStatus.controllerData && !transportStatus.rawData);
+    acceptedTransport->thirdPartyControlByte = 0;
+    error.clear();
 
     ProfileStatus profileStatus{};
     error.clear();

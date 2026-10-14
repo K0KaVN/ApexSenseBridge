@@ -26,7 +26,7 @@ public:
         flydigi::InputTransportStatus original{};
         if (!device_.readInputTransportStatus(original, error)) return false;
         if (original.rawData) return true;
-        if (original.thirdPartyControl) {
+        if (original.thirdPartyControl.value().value_or(false)) {
             error = "Another application owns the Apex 5 input transport.";
             return false;
         }

@@ -526,17 +526,27 @@ void appendTransportJson(std::ostringstream& json,
         json << "null";
         return;
     }
+    const auto flagJson = [](asb::flydigi::TransportFlag flag) {
+        const auto value = flag.value();
+        return value ? (*value ? "true" : "false") : "null";
+    };
     json << "{\n"
          << spaces << "  \"controller_data\": "
          << (status->controllerData ? "true" : "false") << ",\n"
          << spaces << "  \"raw_data\": "
          << (status->rawData ? "true" : "false") << ",\n"
          << spaces << "  \"keyboard_data\": "
-         << (status->keyboardData ? "true" : "false") << ",\n"
+         << flagJson(status->keyboardData) << ",\n"
+         << spaces << "  \"keyboard_data_raw\": "
+         << static_cast<unsigned>(status->keyboardData.raw) << ",\n"
          << spaces << "  \"mouse_data\": "
-         << (status->mouseData ? "true" : "false") << ",\n"
+         << flagJson(status->mouseData) << ",\n"
+         << spaces << "  \"mouse_data_raw\": "
+         << static_cast<unsigned>(status->mouseData.raw) << ",\n"
          << spaces << "  \"third_party_control\": "
-         << (status->thirdPartyControl ? "true" : "false") << '\n'
+         << flagJson(status->thirdPartyControl) << ",\n"
+         << spaces << "  \"third_party_control_raw\": "
+         << static_cast<unsigned>(status->thirdPartyControl.raw) << '\n'
          << spaces << '}';
 }
 
