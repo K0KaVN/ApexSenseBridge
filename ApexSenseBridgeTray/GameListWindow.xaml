@@ -528,8 +528,12 @@
                                                             <TextBlock Text="{DynamicResource Loc_BadgeNew}" FontSize="10.5" Foreground="White" FontWeight="Bold"/>
                                                         </Border>
                                                         <Border Style="{StaticResource StatusTag}" Background="#26F59E0B"
-                                                                ToolTip="{DynamicResource Loc_ManualFixHint}" Visibility="{Binding ManualFixVisibility}">
+                                                                ToolTip="{DynamicResource Loc_ManualFixHint}" Visibility="{Binding ManualFixPendingVisibility}">
                                                             <TextBlock Text="{DynamicResource Loc_PillManualFix}" FontSize="10.5" Foreground="#FBBF24" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <Border Style="{StaticResource StatusTag}" Background="#2634D399"
+                                                                ToolTip="{DynamicResource Loc_ManualFixAppliedHint}" Visibility="{Binding ManualFixAppliedVisibility}">
+                                                            <TextBlock Text="{DynamicResource Loc_PillManualFixApplied}" FontSize="10.5" Foreground="{DynamicResource BadgeActiveFg}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                         </Border>
                                                         <Border Style="{StaticResource StatusTag}" Background="#26EF4444"
                                                                 Visibility="{Binding ExcludedBadgeVisibility}">
@@ -605,6 +609,10 @@
                                                             ToolTip="{DynamicResource Loc_ManualFixHint}" Visibility="Collapsed">
                                                         <TextBlock Text="{DynamicResource Loc_PillManualFix}" Style="{StaticResource FeaturePillText}" Foreground="#FBBF24" FontWeight="SemiBold"/>
                                                     </Border>
+                                                    <Border x:Name="BadgeDetailManualFixApplied" Style="{StaticResource FeaturePill}" Background="#2634D399"
+                                                            ToolTip="{DynamicResource Loc_ManualFixAppliedHint}" Visibility="Collapsed">
+                                                        <TextBlock Text="{DynamicResource Loc_PillManualFixApplied}" Style="{StaticResource FeaturePillText}" Foreground="{DynamicResource BadgeActiveFg}" FontWeight="SemiBold"/>
+                                                    </Border>
                                                     <Border x:Name="BadgeDetailTouchpad" Style="{StaticResource FeaturePill}" Visibility="Collapsed">
                                                         <StackPanel Orientation="Horizontal">
                                                             <Image Source="{StaticResource IconTouchpad}" Style="{StaticResource FeaturePillIcon}"/>
@@ -643,7 +651,7 @@
                                                    Margin="12,-4,12,10"/>
 
                                         <Button x:Name="BtnDetailToggleExclude" Style="{StaticResource BtnSecondary}"
-                                                MinHeight="42" Padding="14,0" HorizontalAlignment="Stretch" Margin="0,0,0,18"
+                                                MinHeight="42" Padding="14,0" HorizontalAlignment="Stretch" Margin="0,0,0,10"
                                                 Click="OnDetailToggleExcludeClick">
                                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                                 <Border Style="{StaticResource XboxBtnX}" Margin="0,0,8,0">
@@ -652,6 +660,14 @@
                                                 <TextBlock x:Name="TxtDetailExcludeAction" Text="{DynamicResource Loc_BtnExcludeCurrent}"
                                                            FontSize="12.5" VerticalAlignment="Center"/>
                                             </StackPanel>
+                                        </Button>
+
+                                        <Button x:Name="BtnDetailToggleManualFix" Style="{StaticResource BtnSecondary}"
+                                                MinHeight="42" Padding="14,0" HorizontalAlignment="Stretch" Margin="0,0,0,18"
+                                                ToolTip="{DynamicResource Loc_ManualFixAllowHint}" Visibility="Collapsed"
+                                                Click="OnDetailToggleManualFixClick">
+                                            <TextBlock x:Name="TxtDetailManualFixAction" Text="{DynamicResource Loc_BtnManualFixAllow}"
+                                                       FontSize="12.5" VerticalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
                                         </Button>
 
                                         <!-- Advanced: optional executable association -->

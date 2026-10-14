@@ -1628,6 +1628,7 @@ namespace ApexSenseBridgeTray
                 {
                     Game = g,
                     IsExcluded = settings.IsGameExcluded(g.Normalized),
+                    IsManualFixAllowed = settings.IsManualFixAllowed(g.Normalized),
                     SelectedApexProfileSlot = settings.GetApexProfileSlot(g.Normalized)
                 };
                 allGameViewModels.Add(vm);
@@ -1819,7 +1820,8 @@ namespace ApexSenseBridgeTray
             if (BadgeDetailAdaptive != null) BadgeDetailAdaptive.Visibility = game.AdaptiveVisibility;
             if (BadgeDetailHaptic != null) BadgeDetailHaptic.Visibility = game.HapticVisibility;
             if (BadgeDetailTouchpad != null) BadgeDetailTouchpad.Visibility = game.RemappingVisibility;
-            if (BadgeDetailManualFix != null) BadgeDetailManualFix.Visibility = game.ManualFixVisibility;
+            if (BadgeDetailManualFix != null) BadgeDetailManualFix.Visibility = game.ManualFixPendingVisibility;
+            if (BadgeDetailManualFixApplied != null) BadgeDetailManualFixApplied.Visibility = game.ManualFixAppliedVisibility;
 
             if (TxtDetailApexProfile != null) TxtDetailApexProfile.Text = game.SelectedApexProfileDisplay;
             UpdateApexProfileSelector();
@@ -1830,6 +1832,22 @@ namespace ApexSenseBridgeTray
                 TxtDetailExcludeAction.Text = game.IsExcluded
                     ? LocalizationManager.Get("Loc_StateIncluded")
                     : LocalizationManager.Get("Loc_BtnExcludeCurrent");
+            }
+
+            if (BtnDetailToggleManualFix != null)
+            {
+                BtnDetailToggleManualFix.Visibility = game.ManualFixVisibility;
+                if (BtnDetailToggleExclude != null)
+                {
+                    BtnDetailToggleExclude.Margin = new Thickness(0, 0, 0, game.RequiresManualFix ? 10 : 18);
+                }
+            }
+            if (TxtDetailManualFixAction != null)
+            {
+                TxtDetailManualFixAction.Text = LocalizationManager.Get(
+                    game.IsManualFixAllowed
+                        ? "Loc_BtnManualFixBlock"
+                        : "Loc_BtnManualFixAllow");
             }
         }
 
@@ -1936,6 +1954,18 @@ namespace ApexSenseBridgeTray
         private void OnDetailToggleExcludeClick(object sender, RoutedEventArgs e)
         {
             ToggleCurrentGameExclusion();
+        }
+
+        private void OnDetailToggleManualFixClick(object sender, RoutedEventArgs e)
+        {
+            var game = SelectedGame;
+            if (game == null || settings == null || !game.RequiresManualFix) return;
+
+            game.IsManualFixAllowed = !game.IsManualFixAllowed;
+            settings.SetManualFixAllowed(game.Normalized, game.IsManualFixAllowed);
+            settings.Save();
+            UpdateDetailPane();
+            monitorService?.ForceCheck();
         }
 
         private void ToggleCurrentGameExclusion()
@@ -2816,6 +2846,27 @@ namespace ApexSenseBridgeTray
                 }
             }
         }
+
+        private bool isManualFixAllowed;
+        /// <summary>The user applied the manual fix and allowed automatic activation.</summary>
+        public bool IsManualFixAllowed
+        {
+            get => isManualFixAllowed;
+            set
+            {
+                if (isManualFixAllowed != value)
+                {
+                    isManualFixAllowed = value;
+                    OnPropertyChanged("IsManualFixAllowed");
+                    OnPropertyChanged("ManualFixPendingVisibility");
+                    OnPropertyChanged("ManualFixAppliedVisibility");
+                }
+            }
+        }
+        public Visibility ManualFixPendingVisibility =>
+            RequiresManualFix && !IsManualFixAllowed ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility ManualFixAppliedVisibility =>
+            RequiresManualFix && IsManualFixAllowed ? Visibility.Visible : Visibility.Collapsed;
 
         private bool isExcluded;
         public bool IsExcluded

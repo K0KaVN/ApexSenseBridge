@@ -581,6 +581,22 @@ internal static class TrayLearningTests
                 game, settings, "DyingLightGame", "Dying Light", "DyingLightGame.exe"),
             "The manual-fix block reason was not exposed to the notification path.");
 
+        settings.SetManualFixAllowed(game.Normalized, true);
+        Assert(GameActivationPolicy.ShouldActivate(
+                game, settings, "DyingLightGame", "Dying Light", "DyingLightGame.exe") &&
+               !GameActivationPolicy.IsBlockedByManualFix(
+                game, settings, "DyingLightGame", "Dying Light", "DyingLightGame.exe"),
+            "A manual-fix game the user allowed did not activate automatically.");
+        settings.SetGameExcludedAliases(game.Normalized, game.Title, true);
+        Assert(!GameActivationPolicy.ShouldActivate(
+                game, settings, "DyingLightGame", "Dying Light", "DyingLightGame.exe"),
+            "Allowing a manual-fix game bypassed its exclusion.");
+        settings.SetGameExcludedAliases(game.Normalized, game.Title, false);
+        settings.SetManualFixAllowed(game.Normalized, false);
+        Assert(!GameActivationPolicy.ShouldActivate(
+                game, settings, "DyingLightGame", "Dying Light", "DyingLightGame.exe"),
+            "Revoking the manual-fix allowance left the game activating.");
+
         game.AdaptiveTriggersManualFix = false;
         Assert(GameActivationPolicy.ShouldActivate(
                 game, settings, "DyingLightGame", "Dying Light", "DyingLightGame.exe"),

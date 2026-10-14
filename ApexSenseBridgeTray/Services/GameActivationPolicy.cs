@@ -19,10 +19,11 @@ namespace ApexSenseBridgeTray.Services
                 return false;
             }
 
+            bool fixApplied = settings.IsManualFixAllowed(game.Normalized);
             return (settings.TriggerOnAdaptiveTriggers && game.AdaptiveTriggers &&
-                    !game.AdaptiveTriggersManualFix) ||
+                    (fixApplied || !game.AdaptiveTriggersManualFix)) ||
                    (settings.TriggerOnHapticFeedback && game.HapticFeedback &&
-                    !game.HapticFeedbackManualFix);
+                    (fixApplied || !game.HapticFeedbackManualFix));
         }
 
         public static bool IsBlockedByManualFix(
@@ -35,6 +36,7 @@ namespace ApexSenseBridgeTray.Services
             if (game == null || settings == null) return false;
             if (IsExcluded(
                 game, settings, executableTitle, folderName, fileName)) return false;
+            if (settings.IsManualFixAllowed(game.Normalized)) return false;
 
             bool requestedManualFeature =
                 (settings.TriggerOnAdaptiveTriggers && game.AdaptiveTriggers &&
