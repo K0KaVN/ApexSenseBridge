@@ -34,7 +34,8 @@ int main() {
     using asb::TriggerMode;
 
     expectCommand({1, 25, 40}, TriggerMode::Race, {25, 40, 0, 0, 0});
-    expectCommand({2, 25, 90, 40}, TriggerMode::SniperBreak, {25, 90, 40, 0, 0});
+    expectCommand({2, 25, 90, 40}, TriggerMode::SniperBreak, {25, 65, 40, 0, 0});
+    expectCommand({2, 40, 40, 40}, TriggerMode::SniperBreak, {40, 1, 40, 0, 0});
     expectCommand({6, 35, 40, 25}, TriggerMode::RecoilRattle, {25, 40, 40, 35, 0});
     expectCommand({5}, TriggerMode::Normal, {});
 
@@ -131,8 +132,14 @@ int main() {
     expectCommand({0x23, 0x04, 0x02, 0x21, 0}, TriggerMode::Normal, {});
     expectCommand({0x27, 0x03, 0, 0x3B, 30, 5}, TriggerMode::RecoilRattle, {0, 1, 60, 30, 0});
     expectCommand({0x27, 0x03, 0, 0x3B, 0, 5}, TriggerMode::Normal, {});
-    expectCommand({0x11, 25, 40}, TriggerMode::Race, {25, 40, 0, 0, 0});
-    expectCommand({0x12, 25, 90, 40}, TriggerMode::SniperBreak, {25, 90, 40, 0, 0});
+    expectCommand({0x11, 25, 10}, TriggerMode::Race, {25, 64, 0, 0, 0});
+    expectCommand({0x11, 25, 5}, TriggerMode::Race, {25, 32, 0, 0, 0});
+    expectCommand({0x11, 25, 1}, TriggerMode::Race, {25, 6, 0, 0, 0});
+    expectCommand({0x11, 25, 0}, TriggerMode::Normal, {});
+    expectCommand({0x12, 25, 90, 10}, TriggerMode::SniperBreak, {25, 65, 64, 0, 0});
+    expectCommand({0x12, 16, 116, 5}, TriggerMode::SniperBreak, {16, 100, 32, 0, 0});
+    expectCommand({0x12, 40, 40, 5}, TriggerMode::SniperBreak, {40, 1, 32, 0, 0});
+    expectCommand({0x12, 25, 90, 0}, TriggerMode::Normal, {});
 
     expectCommand({0x26, 0xF0, 0x03, 0, 0, 0, 0, 0, 0, 35},
                   TriggerMode::RecoilRattle, {77, 1, 10, 35, 0});
@@ -152,11 +159,41 @@ int main() {
                   TriggerMode::Normal, {});
     expectCommand({0x26, 0, 0, 0, 0, 0, 0, 0, 0, 35}, TriggerMode::Normal, {});
 
+    {
+        const auto bow = asb::dualsense::describeBowEmulation(
+            asb::TriggerSide::Right, {0x22, 0x44, 0x00, 0x3B});
+        assert(bow);
+        assert(bow->draw.side == asb::TriggerSide::Right && bow->rupture.side == asb::TriggerSide::Right);
+        assert(bow->draw.mode == TriggerMode::Race);
+        assert((bow->draw.params == std::array<std::uint8_t, 5>{38, 32, 0, 0, 0}));
+        assert(bow->rupture.mode == TriggerMode::SniperBreak);
+        assert((bow->rupture.params == std::array<std::uint8_t, 5>{115, 40, 32, 0, 0}));
+        assert(bow->ruptureAxis == 129 && bow->rearmAxis == 40);
+        assert(bow->rearmAxis < bow->ruptureAxis);
+    }
+    {
+        const auto low = asb::dualsense::describeBowEmulation(
+            asb::TriggerSide::Left, {0x22, 0x03, 0x00, 0x3F});
+        assert(low && low->rearmAxis < low->ruptureAxis);
+        assert((low->draw.params == std::array<std::uint8_t, 5>{0, 64, 0, 0, 0}));
+    }
+    assert(!asb::dualsense::describeBowEmulation(asb::TriggerSide::Left, {0x22, 0x44, 0x00, 0x0B}));
+    assert(!asb::dualsense::describeBowEmulation(asb::TriggerSide::Left, {0x22, 0x04, 0x00, 0x3B}));
+    assert(!asb::dualsense::describeBowEmulation(asb::TriggerSide::Left, {0x22, 0x44, 0x02, 0x3B}));
+    assert(!asb::dualsense::describeBowEmulation(asb::TriggerSide::Left, {0x22, 0x44, 0x04, 0x3B}));
+    assert(!asb::dualsense::describeBowEmulation(asb::TriggerSide::Left, {0x22}));
+    assert(!asb::dualsense::describeBowEmulation(asb::TriggerSide::Left, {0x25, 0x44, 0x00, 0x3B}));
+
     expectUnsupported({0x21, 0x01, 0x04});
     expectUnsupported({0x25, 0x84, 0x80});
     expectUnsupported({0x26, 0xFF, 0x83});
     expectUnsupported({99});
     expectUnsupported({0xFC});
     expectUnsupported({0x22, 0xFF, 0x83});
+    expectUnsupported({0x11, 25, 11});
+    expectUnsupported({0x11, 25, 40});
+    expectUnsupported({0x12, 25, 90, 11});
+    expectUnsupported({0x12, 90, 25, 5});
+    expectUnsupported({2, 90, 25, 40});
     expectUnsupported({0});
 }

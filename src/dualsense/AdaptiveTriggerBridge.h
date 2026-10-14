@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dualsense/AdaptiveTriggerTranslation.h"
 #include "dualsense/DualSenseFeedback.h"
 #include "flydigi/Apex5Device.h"
 
@@ -41,6 +42,7 @@ class AdaptiveTriggerBridge {
 public:
     explicit AdaptiveTriggerBridge(flydigi::Apex5Device& device, unsigned strengthPercent = 100);
     void handle(const DualSenseFeedback& feedback);
+    void updateTriggerPositions(std::uint8_t left, std::uint8_t right);
     [[nodiscard]] bool failed() const noexcept;
     [[nodiscard]] std::string error() const;
     [[nodiscard]] AdaptiveTriggerBridgeStats stats() const;
@@ -50,6 +52,15 @@ private:
                const std::array<std::uint8_t, 11>& effect);
     void recordBlock(TriggerSide side, std::uint8_t enableBits,
                      const std::array<std::uint8_t, 11>& effect);
+    bool send(const ForceTriggerCommand& command, std::uint8_t dualSenseType);
+
+    struct ArmedBow {
+        std::array<std::uint8_t, 11> effect{};
+        BowEmulation emulation;
+        bool ruptured = false;
+    };
+    std::array<std::optional<ArmedBow>, 2> armedBow_;
+    std::atomic_bool bowArmed_{false};
 
     flydigi::Apex5Device& device_;
     unsigned strengthPercent_ = 100;

@@ -79,6 +79,21 @@ void AdaptiveTriggerBridge::apply(TriggerSide side, std::uint8_t enableBits,
     }
     (side == TriggerSide::Left ? lastLeftType_ : lastRightType_)
         .store(effect[0], std::memory_order_relaxed);
+    const auto& identity = device_.identity();
+    std::optional<BowEmulation> bow;
+    if (identity && !identity->isApex4()) bow = describeBowEmulation(side, effect);
+    {
+        std::lock_guard lock(stateMutex_);
+        auto& armed = armedBow_[side == TriggerSide::Left ? 0U : 1U];
+        if (bow && armed && armed->effect == effect) {
+            deduplicated_.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+        if (bow) armed = ArmedBow{effect, *bow, false};
+        else armed.reset();
+        bowArmed_.store(armedBow_[0] || armedBow_[1], std::memory_order_relaxed);
+    }
+    if (bow) *translated = bow->draw;
     *translated = scaleTriggerStrength(*translated, strengthPercent_);
     {
         std::lock_guard lock(stateMutex_);
@@ -89,31 +104,54 @@ void AdaptiveTriggerBridge::apply(TriggerSide side, std::uint8_t enableBits,
         }
     }
 
+    if (!send(*translated, effect[0])) return;
+    translated_.fetch_add(1, std::memory_order_relaxed);
+    if (translated->mode == TriggerMode::Normal) {
+        normal_.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        active_.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+bool AdaptiveTriggerBridge::send(const ForceTriggerCommand& command, std::uint8_t dualSenseType) {
     std::string writeError;
-    if (!device_.queueTriggerRaw(*translated, writeError)) {
+    if (!device_.queueTriggerRaw(command, writeError)) {
         writeFailures_.fetch_add(1, std::memory_order_relaxed);
         {
             std::lock_guard lock(errorMutex_);
             error_ = std::move(writeError);
         }
         failed_.store(true, std::memory_order_relaxed);
-        return;
+        return false;
     }
-    {
-        std::lock_guard lock(stateMutex_);
-        (side == TriggerSide::Left ? lastLeft_ : lastRight_) = translated;
-        if (translated->mode != TriggerMode::Normal) {
-            (side == TriggerSide::Left ? lastActiveLeftType_ : lastActiveRightType_) =
-                effect[0];
-            (side == TriggerSide::Left ? lastActiveLeft_ : lastActiveRight_) =
-                translated;
+    const bool left = command.side == TriggerSide::Left;
+    std::lock_guard lock(stateMutex_);
+    (left ? lastLeft_ : lastRight_) = command;
+    if (command.mode != TriggerMode::Normal) {
+        if (dualSenseType != 0) (left ? lastActiveLeftType_ : lastActiveRightType_) = dualSenseType;
+        (left ? lastActiveLeft_ : lastActiveRight_) = command;
+    }
+    return true;
+}
+
+void AdaptiveTriggerBridge::updateTriggerPositions(std::uint8_t left, std::uint8_t right) {
+    if (!bowArmed_.load(std::memory_order_relaxed) || failed_.load(std::memory_order_relaxed)) return;
+    for (const auto side : {TriggerSide::Left, TriggerSide::Right}) {
+        const auto position = side == TriggerSide::Left ? left : right;
+        std::optional<ForceTriggerCommand> command;
+        {
+            std::lock_guard lock(stateMutex_);
+            auto& armed = armedBow_[side == TriggerSide::Left ? 0U : 1U];
+            if (!armed) continue;
+            if (!armed->ruptured && position >= armed->emulation.ruptureAxis) {
+                command = armed->emulation.rupture;
+                armed->ruptured = true;
+            } else if (armed->ruptured && position <= armed->emulation.rearmAxis) {
+                command = armed->emulation.draw;
+                armed->ruptured = false;
+            }
         }
-    }
-    translated_.fetch_add(1, std::memory_order_relaxed);
-    if (translated->mode == TriggerMode::Normal) {
-        normal_.fetch_add(1, std::memory_order_relaxed);
-    } else {
-        active_.fetch_add(1, std::memory_order_relaxed);
+        if (command && !send(scaleTriggerStrength(*command, strengthPercent_), 0)) return;
     }
 }
 

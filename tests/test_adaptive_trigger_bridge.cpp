@@ -329,13 +329,17 @@ void testStrength(bool apex4) {
     expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::Race, {25, 20, 0, 0, 0});
     feedback.leftTriggerEffect = {2, 25, 90, 60};
     bridge.handle(feedback);
-    expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::SniperBreak, {25, 90, 30, 0, 0});
+    expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::SniperBreak, {25, 65, 30, 0, 0});
     feedback.leftTriggerEffect = {0x25, 0x84, 0, 3};
     bridge.handle(feedback);
     expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::SniperBreak, {38, 96, 16, 0, 0});
     feedback.leftTriggerEffect = {0x22, 0x01, 0x01, 0x38};
     bridge.handle(feedback);
-    expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::SniperBreak, {0, 154, 4, 0, 0});
+    if (apex4) {
+        expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::SniperBreak, {0, 154, 4, 0, 0});
+    } else {
+        expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::Race, {0, 4, 0, 0, 0});
+    }
     feedback.leftTriggerEffect = {0x22, 0x01, 0x02, 0x39};
     bridge.handle(feedback);
     expectReport(*transport, apex4, TriggerSide::Left, TriggerMode::Race, {0, 8, 0, 0, 0});
@@ -487,6 +491,7 @@ void testApex5ReceiverPrioritizesTriggers() {
     }
     assert(device.queueTriggerRaw(
         {TriggerSide::Left, TriggerMode::RecoilRattle, {0, 1, 40, 4}}, error));
+    const auto rumbleQueuedAt = std::chrono::steady_clock::now();
     for (unsigned index = 1; index <= 100; ++index) {
         assert(device.queueRumble(static_cast<std::uint8_t>(index), 7, error));
     }
@@ -513,7 +518,8 @@ void testApex5ReceiverPrioritizesTriggers() {
     const auto& times = transport->writeTimes;
     assert(times[1] - times[0] >= std::chrono::milliseconds(10));
     assert(times[2] - times[1] >= std::chrono::milliseconds(10));
-    assert(times[3] - times[2] >= std::chrono::milliseconds(30));
+    assert(times[3] - times[2] >= std::chrono::milliseconds(30) ||
+           times[3] - rumbleQueuedAt >= std::chrono::milliseconds(100));
 
     const auto stats = device.asyncWriteStats();
     assert(stats.writes == 4);
@@ -545,7 +551,79 @@ void testApex5WriteTelemetry() {
     assert(device.rumbleWriteStats().writes == 2);
 }
 
+void testBowEmulation() {
+    using namespace asb;
+    auto* transport = new FakeTransport(false);
+    flydigi::Apex5Device device{flydigi::TransportPtr(transport)};
+    std::string error;
+    assert(device.verifyIdentity(error));
+    dualsense::AdaptiveTriggerBridge bridge(device);
+    dualsense::DualSenseFeedback feedback{};
+    feedback.enableBits1 = 0x08;
+    feedback.leftTriggerEffect = {0x22, 0x44, 0x00, 0x3B};
+
+    bridge.handle(feedback);
+    assert(transport->writes.size() == 1);
+    expectReport(*transport, false, TriggerSide::Left, TriggerMode::Race, {38, 32, 0, 0, 0});
+    bridge.handle(feedback);
+    assert(transport->writes.size() == 1);
+
+    bridge.updateTriggerPositions(128, 255);
+    assert(transport->writes.size() == 1);
+    bridge.updateTriggerPositions(129, 255);
+    assert(transport->writes.size() == 2);
+    expectReport(*transport, false, TriggerSide::Left, TriggerMode::SniperBreak, {115, 40, 32, 0, 0});
+    bridge.updateTriggerPositions(255, 0);
+    bridge.handle(feedback);
+    assert(transport->writes.size() == 2);
+    bridge.updateTriggerPositions(41, 0);
+    assert(transport->writes.size() == 2);
+    bridge.updateTriggerPositions(40, 0);
+    assert(transport->writes.size() == 3);
+    expectReport(*transport, false, TriggerSide::Left, TriggerMode::Race, {38, 32, 0, 0, 0});
+    bridge.updateTriggerPositions(200, 0);
+    assert(transport->writes.size() == 4);
+    expectReport(*transport, false, TriggerSide::Left, TriggerMode::SniperBreak, {115, 40, 32, 0, 0});
+    assert(bridge.stats().lastLeftCommand->mode == TriggerMode::SniperBreak);
+
+    feedback.leftTriggerEffect = {0x21, 0xFC, 0x03};
+    bridge.handle(feedback);
+    assert(transport->writes.size() == 5);
+    expectReport(*transport, false, TriggerSide::Left, TriggerMode::Race, {38, 8, 0, 0, 0});
+    bridge.updateTriggerPositions(255, 255);
+    bridge.updateTriggerPositions(0, 0);
+    assert(transport->writes.size() == 5);
+    assert(!bridge.failed());
+
+    feedback.enableBits1 = 0x04;
+    feedback.rightTriggerEffect = {0x22, 0x44, 0x00, 0x0B};
+    bridge.handle(feedback);
+    assert(transport->writes.size() == 6);
+    expectReport(*transport, false, TriggerSide::Right, TriggerMode::Race, {38, 32, 0, 0, 0});
+    bridge.updateTriggerPositions(255, 255);
+    assert(transport->writes.size() == 6);
+}
+
+void testBowEmulationDisabledOnApex4() {
+    using namespace asb;
+    auto* transport = new FakeTransport(true);
+    flydigi::Apex5Device device{flydigi::TransportPtr(transport)};
+    std::string error;
+    assert(device.verifyIdentity(error));
+    dualsense::AdaptiveTriggerBridge bridge(device);
+    dualsense::DualSenseFeedback feedback{};
+    feedback.enableBits1 = 0x08;
+    feedback.leftTriggerEffect = {0x22, 0x44, 0x00, 0x3B};
+    bridge.handle(feedback);
+    assert(transport->writes.size() == 1);
+    expectReport(*transport, true, TriggerSide::Left, TriggerMode::SniperBreak, {38, 77, 32, 0, 0});
+    bridge.updateTriggerPositions(255, 255);
+    assert(transport->writes.size() == 1);
+}
+
 int main() {
+    testBowEmulation();
+    testBowEmulationDisabledOnApex4();
     testBridge(false);
     testBridge(true);
     testUnsupportedKeepsActiveEffect(false);

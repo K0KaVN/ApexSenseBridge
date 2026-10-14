@@ -1043,6 +1043,9 @@ int commandBridgeTriggers(int argc, char** argv) {
             if (apex6Bridge) {
                 apex6Bridge->updateTriggerPositions(input.l2, input.r2);
             }
+            if (adaptiveBridge) {
+                adaptiveBridge->updateTriggerPositions(input.l2, input.r2);
+            }
             ++inputSamples;
             seenButtons = static_cast<std::uint16_t>(seenButtons | input.buttons);
             seenDpad = static_cast<std::uint8_t>(seenDpad | input.dpad);

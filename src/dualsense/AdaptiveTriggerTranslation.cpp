@@ -15,6 +15,14 @@ std::uint8_t strokeForZone(unsigned zone) noexcept {
     return static_cast<std::uint8_t>((zone * kMaximumStroke + 5U) / 10U);
 }
 
+std::optional<std::uint8_t> limitedForce(std::uint8_t strength) noexcept {
+    constexpr unsigned kLimitedMaximum = 10;
+    constexpr unsigned kNativeForceCeiling = 64;
+    if (strength > kLimitedMaximum) return std::nullopt;
+    return static_cast<std::uint8_t>(
+        (strength * kNativeForceCeiling + kLimitedMaximum / 2U) / kLimitedMaximum);
+}
+
 struct ZoneRange {
     unsigned first = 10;
     unsigned last = 0;
@@ -119,14 +127,62 @@ std::optional<ForceTriggerCommand> translateNativeTrigger(
                  static_cast<std::uint8_t>((std::max)(amplitude, 1U)), frequency, 0});
 }
 
+unsigned axisForStroke(unsigned stroke) noexcept {
+    return (std::min)(255U, stroke * 255U / 192U);
+}
+
 } // namespace
+
+std::optional<BowEmulation> describeBowEmulation(
+    TriggerSide side, const std::array<std::uint8_t, 11>& effect) {
+    constexpr unsigned kLastZone = 9;
+    constexpr unsigned kStrongSnap = 7;
+    constexpr std::uint8_t kRuptureLength = 40;
+    constexpr unsigned kRuptureAxisPercent = 85;
+    constexpr unsigned kRearmMargin = 10;
+    if (effect[0] != 0x22) return std::nullopt;
+    const auto mask = static_cast<unsigned>(effect[1]) |
+                      (static_cast<unsigned>(effect[2]) << 8U);
+    if (mask == 0 || (mask & ~0x03FFU) != 0) return std::nullopt;
+    const auto zones = scanZones(mask);
+    const unsigned drawStrength = (effect[3] & 0x07U) + 1U;
+    const unsigned snapForce = ((effect[3] >> 3U) & 0x07U) + 1U;
+    if (zones.first >= zones.last || zones.last >= kLastZone || snapForce < kStrongSnap) {
+        return std::nullopt;
+    }
+    const auto start = strokeForZone(zones.first);
+    const auto end = strokeForZone(zones.last);
+    const auto resistance = static_cast<std::uint8_t>(drawStrength * 8U);
+    BowEmulation bow;
+    bow.draw = make(side, TriggerMode::Race, {start, resistance, 0, 0, 0});
+    bow.rupture = make(side, TriggerMode::SniperBreak, {end, kRuptureLength, resistance, 0, 0});
+    bow.ruptureAxis = static_cast<std::uint8_t>(axisForStroke(end) * kRuptureAxisPercent / 100U);
+    const auto startAxis = axisForStroke(start);
+    bow.rearmAxis = static_cast<std::uint8_t>(
+        startAxis > 2U * kRearmMargin ? startAxis - kRearmMargin : kRearmMargin);
+    return bow;
+}
 
 std::optional<ForceTriggerCommand> translateAdaptiveTrigger(
     TriggerSide side, const std::array<std::uint8_t, 11>& effect,
     std::uint8_t) {
     const auto type = effect[0];
-    if (type == 1 || type == 0x11) return make(side, TriggerMode::Race, {effect[1], effect[2], 0, 0, 0});
-    if (type == 2 || type == 0x12) return make(side, TriggerMode::SniperBreak, {effect[1], effect[2], effect[3], 0, 0});
+    if (type == 1) return make(side, TriggerMode::Race, {effect[1], effect[2], 0, 0, 0});
+    if (type == 0x11) {
+        const auto force = limitedForce(effect[2]);
+        if (!force) return std::nullopt;
+        if (*force == 0) return make(side, TriggerMode::Normal);
+        return make(side, TriggerMode::Race, {effect[1], *force, 0, 0, 0});
+    }
+    if (type == 2 || type == 0x12) {
+        if (effect[2] < effect[1]) return std::nullopt;
+        const auto length = static_cast<std::uint8_t>((std::max)(effect[2] - effect[1], 1));
+        if (type == 2) return make(side, TriggerMode::SniperBreak, {effect[1], length, effect[3], 0, 0});
+        const auto force = limitedForce(effect[3]);
+        if (!force) return std::nullopt;
+        if (*force == 0) return make(side, TriggerMode::Normal);
+        return make(side, TriggerMode::SniperBreak, {effect[1], length, *force, 0, 0});
+    }
     if (type == 5) return make(side, TriggerMode::Normal);
     if (type == 6) return make(side, TriggerMode::RecoilRattle,
                               {effect[3], effect[2], effect[2], effect[1], 0});
