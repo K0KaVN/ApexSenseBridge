@@ -721,8 +721,7 @@ int commandBridgeTriggers(int argc, char** argv) {
     }
 
     // Start only after every ordered startup/profile write. On Apex 4 this
-    // moves paced feedback off the virtual-controller callback; Apex 5 keeps
-    // its existing synchronous path.
+    // moves paced feedback off the virtual-controller callback.
     if (!device->startAsyncWrites(error)) {
         virtualDualSense->close();
         return failSession(11, "Could not start the APEX feedback writer: " + error);
@@ -810,7 +809,8 @@ int commandBridgeTriggers(int argc, char** argv) {
             isolationReadyAt - firmwareCheckedAt).count();
     const auto processUsageStarted = processUsageSnapshot();
 
-    std::cout << "APEX verified: " << device->identity()->describe() << '\n'
+    std::cout << "APEX verified: " << device->identity()->describe()
+              << ", connection: " << device->identity()->connectionName() << '\n'
               << (apex6Pro
                       ? "Apex 6 trigger-vibration routing enabled.\n"
                       : "Adaptive-trigger routing enabled.\n")
@@ -1617,7 +1617,24 @@ int commandBridgeTriggers(int argc, char** argv) {
               << "apex_async_coalesced_updates=" << asyncStats.coalesced << '\n'
               << "apex_async_slow_writes=" << asyncStats.slowWrites << '\n'
               << "apex_async_queue_max_us=" << asyncStats.maximumQueueUs << '\n'
-              << "apex_async_write_max_us=" << asyncStats.maximumWriteUs << '\n';
+              << "apex_async_write_max_us=" << asyncStats.maximumWriteUs << '\n'
+              << "apex_connection=" << device->identity()->connectionName() << '\n'
+              << "apex_connection_raw="
+              << static_cast<unsigned>(device->identity()->connectionTypeRaw()) << '\n';
+    if (!apex6Pro) {
+        std::cout << "apex_feedback_writer="
+                  << (device->asyncWritePolicy() ? "async" : "sync") << '\n';
+    }
+    if (apex5) {
+        const auto triggerWrites = device->triggerWriteStats();
+        const auto rumbleWrites = device->rumbleWriteStats();
+        std::cout << "apex5_trigger_writes=" << triggerWrites.writes << '\n'
+                  << "apex5_trigger_writes_over_20ms=" << triggerWrites.slowWrites << '\n'
+                  << "apex5_trigger_write_max_us=" << triggerWrites.maximumWriteUs << '\n'
+                  << "apex5_rumble_writes=" << rumbleWrites.writes << '\n'
+                  << "apex5_rumble_writes_over_20ms=" << rumbleWrites.slowWrites << '\n'
+                  << "apex5_rumble_write_max_us=" << rumbleWrites.maximumWriteUs << '\n';
+    }
     const auto printLast = [](std::string_view side, std::uint8_t dsType,
                               const std::optional<asb::ForceTriggerCommand>& command) {
         std::cout << "last_" << side << "_ds_type=" << static_cast<unsigned>(dsType) << '\n';

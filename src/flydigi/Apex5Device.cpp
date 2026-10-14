@@ -449,6 +449,24 @@ bool Apex5Device::writeSpacedOutputReport(
     return ok;
 }
 
+bool Apex5Device::writeFeedbackReport(
+    std::span<const std::uint8_t> report, bool trigger, std::string& error) {
+    constexpr auto kSlowFeedbackWrite = std::chrono::milliseconds(20);
+    const auto startedAt = std::chrono::steady_clock::now();
+    const bool ok = transport_->writeOutputReport(report, error);
+    const auto finishedAt = std::chrono::steady_clock::now();
+    lastVendorWriteAt_ = finishedAt;
+    if (trigger) lastTriggerWriteAt_ = finishedAt;
+    const auto duration = finishedAt - startedAt;
+    std::lock_guard statsLock(feedbackStatsMutex_);
+    auto& stats = trigger ? triggerWriteStats_ : rumbleWriteStats_;
+    ++stats.writes;
+    if (duration >= kSlowFeedbackWrite) ++stats.slowWrites;
+    stats.maximumWriteUs = (std::max)(stats.maximumWriteUs, static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(duration).count()));
+    return ok;
+}
+
 bool Apex5Device::setTrigger(const TriggerEffect& effect, std::string& error) {
     if (!isOpen()) {
         error = "APEX device is not open";
@@ -462,7 +480,7 @@ bool Apex5Device::setTrigger(const TriggerEffect& effect, std::string& error) {
         return writeSpacedOutputReport(buildApex4ForceTrigger(effect), error);
     }
     const auto report = buildForceTrigger(effect, true);
-    return transport_->writeOutputReport(report, error);
+    return writeFeedbackReport(report, true, error);
 }
 
 bool Apex5Device::setTriggerRaw(const ForceTriggerCommand& command, std::string& error) {
@@ -476,7 +494,7 @@ bool Apex5Device::setTriggerRaw(const ForceTriggerCommand& command, std::string&
     const auto lock = acquireWriteLock();
     return identity_->isApex4()
         ? writeSpacedOutputReport(buildApex4ForceTriggerRaw(command), error)
-        : transport_->writeOutputReport(buildForceTriggerRaw(command, true), error);
+        : writeFeedbackReport(buildForceTriggerRaw(command, true), true, error);
 }
 
 bool Apex5Device::clearTrigger(TriggerSide side, std::string& error) {
@@ -490,7 +508,7 @@ bool Apex5Device::clearTrigger(TriggerSide side, std::string& error) {
     const auto lock = acquireWriteLock();
     return identity_->isApex4()
         ? writeSpacedOutputReport(buildApex4Normal(side), error)
-        : transport_->writeOutputReport(buildNormal(side), error);
+        : writeFeedbackReport(buildNormal(side), true, error);
 }
 
 bool Apex5Device::clearAll(std::string& error) {
@@ -530,8 +548,8 @@ bool Apex5Device::setRumble(std::uint8_t lowFrequencyMotor,
     return identity_->isApex4()
         ? writeSpacedOutputReport(
               buildApex4Rumble(lowFrequencyMotor, highFrequencyMotor), error)
-        : transport_->writeOutputReport(
-              buildRumble(lowFrequencyMotor, highFrequencyMotor), error);
+        : writeFeedbackReport(
+              buildRumble(lowFrequencyMotor, highFrequencyMotor), false, error);
 }
 
 bool Apex5Device::stopRumble(std::string& error) {
@@ -820,9 +838,36 @@ bool Apex5Device::requestBatteryRefresh(std::string& error) {
     return transport_->writeOutputReport(Apex5Identity::buildRequest(), error);
 }
 
+std::optional<AsyncWritePolicy> Apex5Device::asyncWritePolicy() const noexcept {
+    if (!identity_) return std::nullopt;
+    if (identity_->isApex4()) {
+        return AsyncWritePolicy{std::chrono::milliseconds(25), std::chrono::milliseconds(0)};
+    }
+    if (identity_->isApex5() && !identity_->isWired()) {
+        return AsyncWritePolicy{std::chrono::milliseconds(10), std::chrono::milliseconds(30)};
+    }
+    return std::nullopt;
+}
+
+bool Apex5Device::asyncWritesRunning() const noexcept {
+    return writer_.joinable();
+}
+
+FeedbackWriteStats Apex5Device::triggerWriteStats() const noexcept {
+    std::lock_guard lock(feedbackStatsMutex_);
+    return triggerWriteStats_;
+}
+
+FeedbackWriteStats Apex5Device::rumbleWriteStats() const noexcept {
+    std::lock_guard lock(feedbackStatsMutex_);
+    return rumbleWriteStats_;
+}
+
 bool Apex5Device::startAsyncWrites(std::string& error) {
-    if (writer_.joinable() || (identity_ && !identity_->isApex4())) return true;
+    const auto policy = asyncWritePolicy();
+    if (writer_.joinable() || (identity_ && !policy)) return true;
     if (!isOpen() || !mayWriteEffects(error)) return false;
+    asyncPolicy_ = *policy;
     {
         std::lock_guard lock(queueMutex_);
         writerStopping_ = false;
@@ -882,8 +927,9 @@ bool Apex5Device::queueRumble(std::uint8_t lowFrequencyMotor,
             std::lock_guard statsLock(asyncStatsMutex_);
             ++asyncStats_.coalesced;
         }
-        pendingRumble_ = std::pair{lowFrequencyMotor, highFrequencyMotor};
         pendingAt_[2] = std::chrono::steady_clock::now();
+        if (!pendingRumble_) rumblePendingSince_ = pendingAt_[2];
+        pendingRumble_ = std::pair{lowFrequencyMotor, highFrequencyMotor};
     }
     queueSignal_.notify_one();
     return true;
@@ -921,32 +967,38 @@ void Apex5Device::writerLoop() {
         // Coalesce updates that arrive while the receiver's pacing window is
         // open, then choose the newest value rather than an obsolete one.
         // Also serialize the pacing check with synchronous vendor commands.
-        const auto writeLock = acquireWriteLock();
-        constexpr auto kVendorWriteSpacing = std::chrono::milliseconds(25);
+        auto writeLock = acquireWriteLock();
         if (lastVendorWriteAt_.time_since_epoch().count() != 0) {
             const auto since = std::chrono::steady_clock::now() - lastVendorWriteAt_;
-            if (since < kVendorWriteSpacing) {
-                std::this_thread::sleep_for(kVendorWriteSpacing - since);
+            if (since < asyncPolicy_.spacing) {
+                std::this_thread::sleep_for(asyncPolicy_.spacing - since);
             }
         }
 
         std::optional<ForceTriggerCommand> trigger;
         std::optional<std::pair<std::uint8_t, std::uint8_t>> rumble;
         auto queuedAt = std::chrono::steady_clock::time_point{};
+        auto rumbleHeldUntil = std::chrono::steady_clock::time_point{};
         {
             std::lock_guard lock(queueMutex_);
             if (writerStopping_) return;
             // Triggers go ahead of rumble unless rumble has waited too long.
             constexpr auto kRumbleMaximumWait = std::chrono::milliseconds(100);
+            const auto now = std::chrono::steady_clock::now();
             const bool rumbleFirst = !(pendingLeftTrigger_ || pendingRightTrigger_) ||
-                std::chrono::steady_clock::now() - pendingAt_[2] > kRumbleMaximumWait;
+                now - pendingAt_[2] > kRumbleMaximumWait;
+            const auto holdoffEnds = (std::min)(
+                lastTriggerWriteAt_ + asyncPolicy_.rumbleHoldoffAfterTrigger,
+                rumblePendingSince_ + kRumbleMaximumWait);
+            if (pendingRumble_ && now < holdoffEnds) rumbleHeldUntil = holdoffEnds;
             for (unsigned attempt = 0; attempt < 3; ++attempt) {
                 const unsigned slot = (nextSlot_ + attempt) % 3;
                 if (slot == 0 && pendingLeftTrigger_) {
                     trigger = std::exchange(pendingLeftTrigger_, std::nullopt);
                 } else if (slot == 1 && pendingRightTrigger_) {
                     trigger = std::exchange(pendingRightTrigger_, std::nullopt);
-                } else if (slot == 2 && pendingRumble_ && rumbleFirst) {
+                } else if (slot == 2 && pendingRumble_ && rumbleFirst &&
+                           rumbleHeldUntil == std::chrono::steady_clock::time_point{}) {
                     rumble = std::exchange(pendingRumble_, std::nullopt);
                 } else {
                     continue;
@@ -956,7 +1008,14 @@ void Apex5Device::writerLoop() {
                 break;
             }
         }
-        if (!trigger && !rumble) continue;
+        if (!trigger && !rumble) {
+            if (writeLock.owns_lock()) writeLock.unlock();
+            std::unique_lock lock(queueMutex_);
+            queueSignal_.wait_until(lock, rumbleHeldUntil, [this] {
+                return writerStopping_ || pendingLeftTrigger_ || pendingRightTrigger_;
+            });
+            continue;
+        }
 
         std::string error;
         const auto startedAt = std::chrono::steady_clock::now();
