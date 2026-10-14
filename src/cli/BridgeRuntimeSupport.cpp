@@ -50,6 +50,10 @@ void accumulatePhysicalInputStats(asb::platform::PhysicalInputSourceStats& total
     total.vendorStates += added.vendorStates;
     total.vendorParseFailures += added.vendorParseFailures;
     total.vendorReadFailures += added.vendorReadFailures;
+    total.triggerSourceSwitches += added.triggerSourceSwitches;
+    total.vendorMaximumGapMs = (std::max)(total.vendorMaximumGapMs, added.vendorMaximumGapMs);
+    total.vendorStaleTriggerGaps += added.vendorStaleTriggerGaps;
+    asb::platform::accumulatePhysicalInputActivity(total.activity, added.activity);
 }
 
 ProcessUsageSnapshot processUsageSnapshot() noexcept {

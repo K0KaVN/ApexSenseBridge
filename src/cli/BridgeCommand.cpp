@@ -1327,6 +1327,28 @@ int commandBridgeTriggers(int argc, char** argv) {
               << inputSourceStats.vendorParseFailures << '\n'
               << "input_vendor_read_failures="
               << inputSourceStats.vendorReadFailures << '\n'
+              << "input_vendor_max_gap_ms=" << inputSourceStats.vendorMaximumGapMs << '\n'
+              << "input_vendor_stale_trigger_gaps="
+              << inputSourceStats.vendorStaleTriggerGaps << '\n'
+              << "input_trigger_source_switches="
+              << inputSourceStats.triggerSourceSwitches << '\n'
+              << "input_changes_sticks=" << inputSourceStats.activity.stickChanges << '\n'
+              << "input_changes_l2=" << inputSourceStats.activity.l2Changes << '\n'
+              << "input_changes_r2=" << inputSourceStats.activity.r2Changes << '\n'
+              << "input_changes_buttons=" << inputSourceStats.activity.buttonChanges << '\n'
+              << "input_changes_dpad=" << inputSourceStats.activity.dpadChanges << '\n'
+              << "input_changes_imu=" << inputSourceStats.activity.imuChanges << '\n'
+              << "input_l2_oscillations=" << inputSourceStats.activity.l2Oscillations << '\n'
+              << "input_r2_oscillations=" << inputSourceStats.activity.r2Oscillations << '\n'
+              << "input_button_bounces=" << inputSourceStats.activity.buttonBounces << '\n'
+              << "input_trigger_button_bounces="
+              << inputSourceStats.activity.triggerButtonBounces << '\n'
+              << "input_bounced_buttons=0x" << std::hex << std::uppercase << std::setw(4)
+              << std::setfill('0') << inputSourceStats.activity.bouncedButtons
+              << std::dec << std::setfill(' ') << '\n'
+              << "input_bounced_dpad=0x" << std::hex << std::uppercase
+              << static_cast<unsigned>(inputSourceStats.activity.bouncedDpad)
+              << std::dec << std::nouppercase << '\n'
               << "virtual_startup_attempts=" << startupResult.attempts << '\n'
               << "runtime_ms=" << runtimeMilliseconds << '\n'
               << "initialization_ms=" << initializationMilliseconds << '\n'

@@ -2,6 +2,7 @@
 
 #include "core/DeviceInfo.h"
 #include "dualsense/DualSenseInput.h"
+#include "platform/PhysicalInputActivity.h"
 
 #include <chrono>
 #include <cstdint>
@@ -28,6 +29,10 @@ struct PhysicalInputSourceStats {
     std::uint64_t vendorStates = 0;
     std::uint64_t vendorParseFailures = 0;
     std::uint64_t vendorReadFailures = 0;
+    std::uint64_t triggerSourceSwitches = 0;
+    std::uint64_t vendorMaximumGapMs = 0;
+    std::uint64_t vendorStaleTriggerGaps = 0;
+    PhysicalInputActivityStats activity{};
 };
 
 // Reads the complete physical APEX game state for the mandatory

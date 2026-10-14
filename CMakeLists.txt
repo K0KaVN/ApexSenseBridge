@@ -327,6 +327,18 @@ if(BUILD_TESTING)
     add_test(NAME physical_input_freshness
              COMMAND ApexSenseBridgePhysicalInputFreshnessTests)
 
+    add_executable(ApexSenseBridgePhysicalInputActivityTests
+        tests/test_physical_input_activity.cpp
+    )
+    target_include_directories(ApexSenseBridgePhysicalInputActivityTests PRIVATE src)
+    if(MSVC)
+        target_compile_options(ApexSenseBridgePhysicalInputActivityTests PRIVATE /W4 /permissive- /EHsc)
+    else()
+        target_compile_options(ApexSenseBridgePhysicalInputActivityTests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME physical_input_activity
+             COMMAND ApexSenseBridgePhysicalInputActivityTests)
+
     add_executable(ApexSenseBridgeViewTouchpadGestureTests
         tests/test_view_touchpad_gesture.cpp
         src/dualsense/ViewTouchpadGesture.cpp

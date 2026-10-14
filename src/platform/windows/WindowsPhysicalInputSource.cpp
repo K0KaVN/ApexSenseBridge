@@ -903,7 +903,7 @@ public:
                 return PhysicalInputStatus::State;
             }
 
-            const bool decodedVendorState = consumeVendorReport();
+            bool decodedVendorState = consumeVendorReport();
             if (!vendorUnavailable_) {
                 std::string pendingError;
                 if (!ensureReadPending(pendingError)) {
@@ -911,6 +911,7 @@ public:
                     ++vendorReadFailures_;
                 }
             }
+            if (drainVendorReports()) decodedVendorState = true;
             if (decodedVendorState && xinputFallbackActive_) {
                 if (pollXInputFallback(state)) {
                     ++stats_.reports;
@@ -945,6 +946,10 @@ public:
         result.vendorStates = vendorStates_;
         result.vendorParseFailures = vendorParseFailures_;
         result.vendorReadFailures = vendorReadFailures_;
+        result.triggerSourceSwitches = composer_.triggerSourceSwitches();
+        result.vendorMaximumGapMs = vendorGaps_.maximumGapMilliseconds();
+        result.vendorStaleTriggerGaps = vendorGaps_.staleGaps();
+        result.activity = activity_.stats();
         return result;
     }
     bool requiresIndependentTriggers() const noexcept override {
@@ -1032,43 +1037,53 @@ private:
             ++vendorParseFailures_;
             return false;
         }
+        const auto decodedAt = std::chrono::steady_clock::now();
         lastVendorState_ = *decoded;
-        independentTriggerFreshness_.observe();
+        lastVendorStateAt_ = decodedAt;
+        independentTriggerFreshness_.observe(decodedAt);
+        vendorGaps_.observe(decodedAt);
         ++vendorStates_;
         return true;
     }
 
-    void drainVendorReports() noexcept {
-        if (vendorUnavailable_) return;
-        constexpr unsigned int kMaximumReportsPerMappedState = 8;
-        for (unsigned int drained = 0; drained < kMaximumReportsPerMappedState;
-             ++drained) {
+    bool drainVendorReports() noexcept {
+        if (vendorUnavailable_) return false;
+        constexpr unsigned int kMaximumDrainedReports = 64;
+        bool decoded = false;
+        for (unsigned int drained = 0; drained < kMaximumDrainedReports; ++drained) {
             const DWORD waitResult = WaitForSingleObject(event_, 0);
-            if (waitResult == WAIT_TIMEOUT) return;
+            if (waitResult == WAIT_TIMEOUT) return decoded;
             if (waitResult != WAIT_OBJECT_0) {
                 vendorUnavailable_ = true;
                 ++vendorReadFailures_;
-                return;
+                return decoded;
             }
-            (void)consumeVendorReport();
-            if (vendorUnavailable_) return;
+            if (consumeVendorReport()) decoded = true;
+            if (vendorUnavailable_) return decoded;
 
             std::string pendingError;
             if (!ensureReadPending(pendingError)) {
                 vendorUnavailable_ = true;
                 ++vendorReadFailures_;
-                return;
+                return decoded;
             }
         }
+        return decoded;
     }
 
-    void composeState(dualsense::DualSenseInputState& state) const noexcept {
+    void composeState(dualsense::DualSenseInputState& state) noexcept {
         // Motion remains valid when standard controls bootstrap through XInput.
         // independentTriggersReady() also requires mapped HID, which may never
         // report in this mode and must not suppress a healthy IMU stream.
-        const bool vendorReady = !vendorUnavailable_ && independentTriggerFreshness_.ready();
-        state = flydigi::composeApex5InputState(
-            *lastMappedState_, independentTriggersReady() ? lastVendorState_ : std::nullopt,
+        const auto now = std::chrono::steady_clock::now();
+        const bool vendorReady = !vendorUnavailable_ && independentTriggerFreshness_.ready(now);
+        const auto vendorTriggerAge = lastVendorStateAt_
+            ? now - *lastVendorStateAt_
+            : std::chrono::steady_clock::duration::max();
+        state = composer_.compose(
+            *lastMappedState_,
+            mappedInputObserved_ && vendorReady ? lastVendorState_ : std::nullopt,
+            vendorTriggerAge,
             currentBatteryPercent_.load(std::memory_order_relaxed),
             currentChargeState_.load(std::memory_order_relaxed));
         if (vendorReady && lastVendorState_) {
@@ -1079,6 +1094,7 @@ private:
             state.accelY = lastVendorState_->accelY;
             state.accelZ = lastVendorState_->accelZ;
         }
+        activity_.observe(state, now);
     }
 
     bool pollXInputFallback(dualsense::DualSenseInputState& state) noexcept {
@@ -1103,7 +1119,11 @@ private:
     bool readPending_ = false;
     std::vector<std::uint8_t> report_;
     std::optional<dualsense::DualSenseInputState> lastVendorState_;
+    std::optional<std::chrono::steady_clock::time_point> lastVendorStateAt_;
     IndependentTriggerStreamFreshness independentTriggerFreshness_;
+    flydigi::Apex5InputComposer composer_;
+    PhysicalInputActivityTracker activity_;
+    VendorStreamGapTracker vendorGaps_{flydigi::Apex5InputComposer::kTriggerFreshness};
     std::uint64_t vendorReports_ = 0;
     std::uint64_t vendorStates_ = 0;
     std::uint64_t vendorParseFailures_ = 0;

@@ -116,5 +116,26 @@ int main() {
     assert(total.reports == 11 && total.timeouts == 22 && total.parseFailures == 33);
     assert(total.mappedReports == 44 && total.vendorReports == 55 && total.vendorStates == 66);
     assert(total.vendorParseFailures == 77 && total.vendorReadFailures == 88);
+    asb::platform::PhysicalInputSourceStats retired{};
+    retired.triggerSourceSwitches = 3;
+    retired.vendorMaximumGapMs = 70;
+    retired.vendorStaleTriggerGaps = 2;
+    retired.activity.l2Oscillations = 5;
+    retired.activity.bouncedButtons = asb::dualsense::button::kCross;
+    asb::platform::PhysicalInputSourceStats current{};
+    current.triggerSourceSwitches = 4;
+    current.vendorMaximumGapMs = 40;
+    current.vendorStaleTriggerGaps = 1;
+    current.activity.l2Oscillations = 6;
+    current.activity.bouncedButtons = asb::dualsense::button::kL2;
+    asb::cli::accumulatePhysicalInputStats(retired, current);
+    assert(retired.triggerSourceSwitches == 7 && retired.vendorStaleTriggerGaps == 3);
+    assert(retired.vendorMaximumGapMs == 70);
+    assert(retired.activity.l2Oscillations == 11);
+    assert(retired.activity.bouncedButtons ==
+           (asb::dualsense::button::kCross | asb::dualsense::button::kL2));
+    current.vendorMaximumGapMs = 90;
+    asb::cli::accumulatePhysicalInputStats(retired, current);
+    assert(retired.vendorMaximumGapMs == 90);
     return 0;
 }
