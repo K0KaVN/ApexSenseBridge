@@ -152,19 +152,31 @@ int run(int argc, char** argv) {
         return 0;
     }
     if (command == "restore-controller-visibility") {
-        bool controllerRecovered = false;
+        asb::platform::ControllerRecoveryReport controllerRecovery;
         std::string controllerError;
         const bool controllerOk =
             asb::platform::TemporaryPhysicalControllerIsolation::recoverPending(
-                controllerRecovered, controllerError);
-        if (!controllerOk) {
+                controllerRecovery, controllerError);
+        if (!controllerRecovery.visibilityRestored) {
             std::cerr << "Controller visibility recovery failed: "
                       << controllerError << '\n';
             return 11;
         }
-        std::cout << (controllerRecovered
-                          ? "The original controller visibility and Apex profile state were restored.\n"
-                          : "No pending controller/profile recovery was found.\n");
+        if (!controllerOk) {
+            std::cout << "The original controller visibility was restored, but the "
+                         "Apex 5 profile and input settings could not be restored yet: "
+                      << controllerError
+                      << "\nWake the controller and run this command again.\n";
+        } else if (!controllerRecovery.recovered) {
+            std::cout << "No pending controller visibility recovery was found.\n";
+        } else if (controllerRecovery.notice.empty()) {
+            std::cout << "The original controller visibility and Apex profile state were restored.\n";
+        } else {
+            std::cout << "The original controller visibility was restored.\n";
+        }
+        if (!controllerRecovery.notice.empty()) {
+            std::cout << controllerRecovery.notice << '\n';
+        }
         return 0;
     }
     if (command == "stop-active-sessions") {

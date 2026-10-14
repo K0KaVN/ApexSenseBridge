@@ -71,12 +71,15 @@ int commandBridgeTriggers(int argc, char** argv) {
     // recovery here as well before enumerating a freshly-woken controller.
     // Pending profile/transport restoration may still need the controller to
     // finish waking; activate() retries that recovery once identity is back.
-    bool recoveredPreviousIsolation = false;
+    asb::platform::ControllerRecoveryReport previousIsolation;
     std::string previousIsolationError;
     if (!asb::platform::TemporaryPhysicalControllerIsolation::recoverPending(
-            recoveredPreviousIsolation, previousIsolationError)) {
+            previousIsolation, previousIsolationError)) {
         std::cerr << "Warning: pending controller recovery is incomplete: "
                   << previousIsolationError << '\n';
+    }
+    if (!previousIsolation.notice.empty()) {
+        std::cout << previousIsolation.notice << '\n';
     }
 
     std::unique_ptr<asb::platform::SessionControl> sessionControl;
@@ -192,6 +195,14 @@ int commandBridgeTriggers(int argc, char** argv) {
 
     if (stopRequested()) return cancelStartup();
     startup.enter("controller-snapshot");
+    std::string deferredApexNotice;
+    if (!asb::platform::TemporaryPhysicalControllerIsolation::applyDeferredApexRestore(
+            *device, deferredApexNotice, error)) {
+        std::cerr << error << '\n';
+        return failSession(11, error);
+    }
+    if (!deferredApexNotice.empty()) std::cout << deferredApexNotice << '\n';
+
     std::optional<asb::flydigi::ProfileStatus> originalProfile;
     std::optional<asb::flydigi::InputTransportStatus> originalInputTransport;
     bool profileSwitchRequired = false;

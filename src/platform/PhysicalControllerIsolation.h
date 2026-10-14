@@ -11,7 +11,17 @@
 #include <string_view>
 #include <vector>
 
+namespace asb::flydigi {
+class Apex5Device;
+}
+
 namespace asb::platform {
+
+struct ControllerRecoveryReport {
+    bool recovered = false;
+    bool visibilityRestored = true;
+    std::string notice;
+};
 
 // Temporarily hides only the selected APEX game-controller interfaces from
 // other processes. The bridge remains allowed to read them and restores the
@@ -39,7 +49,11 @@ public:
 
     // Internal recovery entry points used by the same executable from RunOnce
     // and from the crash watchdog.
-    static bool recoverPending(bool& recovered, std::string& error) noexcept;
+    static bool recoverPending(ControllerRecoveryReport& report,
+                               std::string& error) noexcept;
+    static bool applyDeferredApexRestore(flydigi::Apex5Device& device,
+                                         std::string& notice,
+                                         std::string& error) noexcept;
     static int watchAndRecover(std::uint32_t ownerProcessId,
                                std::string_view sessionToken,
                                std::string& error) noexcept;
@@ -78,6 +92,55 @@ namespace detail {
     std::uint16_t vendorId,
     std::uint16_t productId,
     std::uint16_t usagePage) noexcept;
+
+struct ApexSettingsRestore {
+    std::wstring vendorPath;
+    std::wstring containerId;
+    std::uint16_t vendorId = 0;
+    std::uint16_t productId = 0;
+    std::uint16_t usagePage = 0;
+    bool profilePending = false;
+    std::uint8_t profileSlot = 0;
+    bool inputTransportPending = false;
+    bool controllerData = true;
+    bool rawData = false;
+};
+
+enum class ApexRestoreTarget { Present, Absent, Unknown };
+
+enum class ApexRestoreOutcome { Restored, Absent, Unresponsive, Failed, NotAttempted };
+
+enum class ApexRecoveryMode { OwnSession, StaleSession, SessionActivation };
+
+inline constexpr std::wstring_view kRecoveryRegistryKey =
+    L"Software\\ApexSenseBridge\\PhysicalControllerIsolation";
+inline constexpr std::wstring_view kDeferredApexRestoreRegistryKey =
+    L"Software\\ApexSenseBridge\\DeferredApexRestore";
+
+[[nodiscard]] ApexRestoreTarget locateApexRestoreTarget(
+    const ApexSettingsRestore& settings,
+    const std::vector<HidDeviceInfo>& candidates,
+    bool enumerationFailed) noexcept;
+
+[[nodiscard]] bool defersApexRestore(ApexRecoveryMode mode,
+                                     ApexRestoreOutcome outcome) noexcept;
+
+[[nodiscard]] std::optional<ApexSettingsRestore> remainingDeferredApexRestore(
+    const ApexSettingsRestore& deferred,
+    bool profileRestored,
+    bool inputTransportRestored);
+
+[[nodiscard]] bool recoveryMarkerUnchanged(
+    std::optional<std::uint32_t> currentOwnerProcessId,
+    std::uint32_t expectedOwnerProcessId) noexcept;
+
+[[nodiscard]] bool mergeDeferredApexRestore(
+    std::optional<ApexSettingsRestore>& deferred,
+    const ApexSettingsRestore& pending);
+
+[[nodiscard]] bool deferredApexRestoreBlocksSession(
+    const ApexSettingsRestore& deferred,
+    const HidDeviceInfo& sessionInterface) noexcept;
 
 // HidHide's control device accepts one client at a time, so another
 // application that configures HidHide (DSX, DS4Windows, the HidHide

@@ -30,6 +30,7 @@
   <ItemGroup>
     <Compile Include="tray_learning_tests.cs" />
     <Compile Include="..\ApexSenseBridgeTray\Services\SessionRecoveryState.cs" />
+    <Compile Include="..\ApexSenseBridgeTray\Services\StartRetryPolicy.cs" />
     <Compile Include="..\ApexSenseBridgeTray\Services\EngineSessionManager.cs" />
     <Compile Include="..\ApexSenseBridgeTray\Services\SteamProcessChecker.cs" />
     <Compile Include="..\ApexSenseBridgeTray\Services\ControllerDetectionService.cs" />

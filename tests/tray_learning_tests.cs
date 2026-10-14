@@ -66,6 +66,9 @@ internal static class TrayLearningTests
             TestExternalRecoveryOwnership();
             TestRecoveryCancelledDuringStartup();
             TestRecoveryGameLifetimeTracking();
+            TestStartRetryPolicy();
+            TestAutomaticStartPause();
+            TestIdentityFailureQuickRetry();
             TestEngineMainEntry(testRoot);
             TestGameProcessSessionPidHandoff();
             TestPlatformClientsNeverCountAsGameProcesses();
@@ -918,7 +921,16 @@ internal static class TrayLearningTests
                 Thread.Sleep(30000);
                 return 0;
             }
-            bool fail = Array.IndexOf(args, "--fail") >= 0;
+            var injectedFailure = Environment.GetEnvironmentVariable("ASB_TEST_FAKE_FAILURE");
+            bool fail = Array.IndexOf(args, "--fail") >= 0 || !string.IsNullOrEmpty(injectedFailure);
+            int failureCode = 11;
+            string failureMessage = "Isolation impossible (test).";
+            if (!string.IsNullOrEmpty(injectedFailure))
+            {
+                var parts = injectedFailure.Split(new[] { '|' }, 2);
+                failureCode = int.Parse(parts[0], CultureInfo.InvariantCulture);
+                failureMessage = parts[1];
+            }
             progress.Write(0, 0x50534241u);
             progress.Write(4, 1u);
             foreach (uint stages in new uint[] { 1, 3, 7 })
@@ -927,15 +939,15 @@ internal static class TrayLearningTests
                 Thread.Sleep(150);
             }
             progress.Write(8, fail ? 7u : 15u);
-            var bytes = Encoding.UTF8.GetBytes(fail ? "Isolation impossible (test)." : "ASB_READY|APEX test USB");
+            var bytes = Encoding.UTF8.GetBytes(fail ? failureMessage : "ASB_READY|APEX test USB");
             view.Write(0, 0x53425341u);
             view.Write(4, (ushort)1);
             view.Write(6, (ushort)(fail ? 5 : 2));
-            view.Write(8, fail ? 11 : 0);
+            view.Write(8, fail ? failureCode : 0);
             view.Write(12, (uint)bytes.Length);
             view.WriteArray(16, bytes, 0, bytes.Length);
             ready.Set();
-            if (fail) return 11;
+            if (fail) return failureCode;
             if (Array.IndexOf(args, "--disconnect") >= 0 && !stop.WaitOne(900))
             {
                 progress.Write(12, 1u);
@@ -1162,6 +1174,240 @@ internal static class TrayLearningTests
                 Assert(stopped && !manager.AutomaticActivationBlocked && !manager.Recovery.Pending && launchAttempts == 0, "Closing the interrupted game failed to clear recovery without launching an engine.");
             }
             finally { manager.Dispose(); }
+        }
+    }
+
+    private static void TestStartRetryPolicy()
+    {
+        var policy = new StartRetryPolicy();
+        Assert(policy.RecordFailure(100, 11, "Isolation failed") == StartRetryPolicy.RetryDelay && !policy.IsPaused(100),
+            "A first failure did not keep the normal retry delay.");
+        Assert(policy.RecordFailure(100, 11, "Isolation failed") == null && policy.IsPaused(100) && policy.HasPausedProcess,
+            "Two identical failures did not stop automatic retries.");
+        Assert(!policy.IsPaused(101) && policy.RecordFailure(101, 11, "Isolation failed") == StartRetryPolicy.RetryDelay,
+            "A pause leaked to another game process.");
+
+        Assert(policy.RecordFailure(200, 11, "A") == StartRetryPolicy.RetryDelay &&
+               policy.RecordFailure(200, 11, "B") == StartRetryPolicy.RetryDelay &&
+               policy.RecordFailure(200, 12, "B") == StartRetryPolicy.RetryDelay && !policy.IsPaused(200),
+            "Failures with a different message or exit code counted as identical.");
+        Assert(policy.RecordFailure(200, 12, "B") == null, "The latest identical failure pair did not pause.");
+
+        Assert(policy.RecordFailure(300, 3, "APEX identity check failed: asleep") == StartRetryPolicy.IdentityRetryDelay,
+            "An identity check failure was not retried quickly.");
+        Assert(policy.RecordFailure(300, 3, "APEX identity check failed: busy") == StartRetryPolicy.RetryDelay,
+            "An identity check failure got more than one quick retry.");
+        Assert(policy.RecordFailure(300, 3, "APEX identity check failed: busy") == StartRetryPolicy.RetryDelay && !policy.IsPaused(300),
+            "Repeated identity check failures paused automatic starts.");
+        Assert(policy.RecordFailure(301, 3, "APEX identity check failed: asleep") == StartRetryPolicy.IdentityRetryDelay,
+            "An identity check failure was not retried quickly.");
+        for (int i = 0; i < 10; i++)
+            Assert(policy.RecordFailure(301, 3, "APEX identity check failed: asleep") == StartRetryPolicy.RetryDelay &&
+                   !policy.IsPaused(301),
+                "Identical identity check failures paused automatic starts or repeated the quick retry.");
+        Assert(policy.RecordFailure(301, 11, "Isolation failed") == StartRetryPolicy.RetryDelay &&
+               policy.RecordFailure(301, 11, "Isolation failed") == null && policy.IsPaused(301),
+            "Other failures after an identity check failure did not pause.");
+        Assert(policy.RecordFailure(301, 3, "APEX identity check failed: asleep") == StartRetryPolicy.RetryDelay && !policy.IsPaused(301),
+            "An identity check failure kept a previous pause.");
+        Assert(StartRetryPolicy.IdentityRetryDelay == TimeSpan.FromSeconds(2), "The quick identity retry is not about 2 s.");
+
+        policy.Forget(100);
+        Assert(!policy.IsPaused(100) && policy.RecordFailure(100, 11, "Isolation failed") == StartRetryPolicy.RetryDelay,
+            "A restarted game process inherited the previous pause.");
+        policy.Reset();
+        Assert(!policy.HasPausedProcess && policy.RecordFailure(300, 3, "APEX identity check failed: busy") == StartRetryPolicy.IdentityRetryDelay,
+            "A manual retry did not clear the pause and quick-retry state.");
+
+        Assert(!policy.ObserveController("unavailable", false) && !policy.ObserveController("apex5", false),
+            "The first controller report counted as a change.");
+        Assert(!policy.ObserveController("unavailable", true) && !policy.ObserveController("ambiguous", false) &&
+               !policy.ObserveController("apex5", false),
+            "A bridge start or an ambiguous scan counted as a controller change.");
+        Assert(!policy.ObserveController("unavailable", false) && policy.ObserveController("apex5", false),
+            "A controller that went unavailable and came back was not treated as a change.");
+        Assert(policy.ObserveController("apex6", false) && policy.ObserveController("disconnected", false) &&
+               !policy.ObserveController("disconnected", false),
+            "A controller swap or disconnection was not detected.");
+
+        var retained = new StartRetryPolicy();
+        retained.RecordFailure(700, 11, "Isolation failed");
+        retained.RecordFailure(700, 11, "Isolation failed");
+        retained.RecordFailure(704, 11, "Isolation failed");
+        retained.Retain(new HashSet<uint> { 704 });
+        Assert(!retained.IsPaused(700) && !retained.HasPausedProcess && retained.HasEntries &&
+               retained.RecordFailure(700, 11, "Isolation failed") == StartRetryPolicy.RetryDelay,
+            "A stopped process kept its failure history.");
+    }
+
+    private static void TestAutomaticStartPause()
+    {
+        var catalog = CreateGameList("{\"games\":[{\"title\":\"Alpha Game\",\"normalized\":\"alphagame\",\"profile\":\"standard\",\"adaptiveTriggers\":true}]}");
+        var settings = new TraySettings();
+        settings.SetGameExecutable("alphagame", @"C:\Fake\Alpha.exe");
+        int launchAttempts = 0;
+        var manager = new EngineSessionManager(() => { launchAttempts++; return null; }, "Local\\ASB.RetryPauseTest." + Guid.NewGuid().ToString("N"), () => false);
+        using (var monitor = new ProcessMonitorService(catalog, manager, null, settings, false))
+        {
+            try
+            {
+                var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                var check = typeof(ProcessMonitorService).GetMethod("CheckCandidateProcess", flags);
+                var cooldowns = (Dictionary<uint, DateTime>)typeof(ProcessMonitorService).GetField("retryCooldowns", flags).GetValue(monitor);
+                var paused = new List<string>();
+                monitor.AutomaticStartPaused += title => paused.Add(title);
+                Action<uint> attempt = pid => check.Invoke(monitor, new object[] { pid, "Alpha.exe", @"C:\Fake\Alpha.exe", 0L, null, "test", false });
+                Action<uint> expireCooldown = pid => { lock (cooldowns) cooldowns.Remove(pid); };
+
+                attempt(3001);
+                Assert(launchAttempts == 1 && paused.Count == 0 && !monitor.HasPausedAutomaticStart, "A first start failure paused automatic starts.");
+                Assert(cooldowns[3001] > DateTime.UtcNow.AddSeconds(8), "A generic start failure lost the normal retry delay.");
+                attempt(3001);
+                Assert(launchAttempts == 1, "A failed start was retried during its cooldown.");
+                expireCooldown(3001);
+                attempt(3001);
+                Assert(launchAttempts == 2 && paused.Count == 1 && paused[0] == "Alpha Game" && monitor.HasPausedAutomaticStart,
+                    "Two identical start failures did not pause automatic starts with a notification.");
+                attempt(3001);
+                Assert(launchAttempts == 2 && paused.Count == 1 && cooldowns[3001] == DateTime.MaxValue,
+                    "A paused game process was retried automatically.");
+
+                attempt(3002);
+                Assert(launchAttempts == 3 && paused.Count == 1, "A restarted game process stayed paused.");
+
+                monitor.RetryPausedStarts();
+                Assert(!monitor.HasPausedAutomaticStart && !cooldowns.ContainsKey(3001), "A manual retry did not resume automatic starts.");
+                attempt(3001);
+                Assert(launchAttempts == 4 && !monitor.HasPausedAutomaticStart, "A manual retry kept the previous failure count.");
+                expireCooldown(3001);
+                attempt(3001);
+                Assert(launchAttempts == 5 && paused.Count == 2 && monitor.HasPausedAutomaticStart, "Automatic starts did not pause again.");
+
+                monitor.ReportControllerStatus("apex5");
+                Assert(monitor.HasPausedAutomaticStart, "The first controller report resumed automatic starts.");
+                monitor.ReportControllerStatus("apex6");
+                Assert(!monitor.HasPausedAutomaticStart && !cooldowns.ContainsKey(3001), "A controller change did not resume automatic starts.");
+
+                attempt(3001);
+                expireCooldown(3001);
+                attempt(3001);
+                Assert(launchAttempts == 7 && monitor.HasPausedAutomaticStart, "The pause was not re-armed after a controller change.");
+                monitor.ReportControllerStatus("unavailable");
+                Assert(monitor.HasPausedAutomaticStart, "An unavailable controller alone resumed automatic starts.");
+                monitor.ReportControllerStatus("apex6");
+                Assert(!monitor.HasPausedAutomaticStart, "A controller that came back after being unavailable did not resume automatic starts.");
+
+                attempt(3001);
+                expireCooldown(3001);
+                attempt(3001);
+                Assert(launchAttempts == 9 && monitor.HasPausedAutomaticStart, "The pause was not re-armed after a reconnection.");
+                var isStarting = typeof(EngineSessionManager).GetField("isStarting", flags);
+                isStarting.SetValue(manager, true);
+                try
+                {
+                    monitor.ReportControllerStatus("unavailable");
+                    monitor.ReportControllerStatus("apex6");
+                    Assert(monitor.HasPausedAutomaticStart, "A bridge start counted as a controller change.");
+                    for (int i = 0; i < 3; i++)
+                    {
+                        expireCooldown(3009);
+                        attempt(3009);
+                    }
+                    Assert(launchAttempts == 9 && cooldowns[3009] < DateTime.MaxValue,
+                        "Refusals while the Tray session was starting paused automatic starts.");
+                }
+                finally { isStarting.SetValue(manager, false); }
+
+                typeof(ProcessMonitorService).GetMethod("ForgetStartFailures", flags).Invoke(monitor, new object[] { 3001u });
+                Assert(!monitor.HasPausedAutomaticStart && !cooldowns.ContainsKey(3001), "A stopped game process stayed paused.");
+
+                attempt(3005);
+                expireCooldown(3005);
+                attempt(3005);
+                Assert(launchAttempts == 11 && monitor.HasPausedAutomaticStart, "A second game process did not pause.");
+                typeof(ProcessMonitorService).GetMethod("PruneStartRetries", flags, null, new[] { typeof(ICollection<uint>) }, null)
+                    .Invoke(monitor, new object[] { new HashSet<uint> { 3001 } });
+                Assert(!monitor.HasPausedAutomaticStart && !cooldowns.ContainsKey(3005) && !cooldowns.ContainsKey(3009),
+                    "A process sweep kept the pause or cooldown of exited processes.");
+            }
+            finally { manager.Dispose(); }
+        }
+
+        var external = new EngineSessionManager(() => null, "Local\\ASB.RetryExternalTest." + Guid.NewGuid().ToString("N"), () => true);
+        using (var monitor = new ProcessMonitorService(catalog, external, null, settings, false))
+        {
+            try
+            {
+                var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                var check = typeof(ProcessMonitorService).GetMethod("CheckCandidateProcess", flags);
+                var cooldowns = (Dictionary<uint, DateTime>)typeof(ProcessMonitorService).GetField("retryCooldowns", flags).GetValue(monitor);
+                for (int i = 0; i < 3; i++)
+                {
+                    lock (cooldowns) cooldowns.Remove(5001);
+                    check.Invoke(monitor, new object[] { 5001u, "Alpha.exe", @"C:\Fake\Alpha.exe", 0L, null, "test", false });
+                }
+                Assert(!monitor.HasPausedAutomaticStart && cooldowns[5001] < DateTime.MaxValue,
+                    "A session owned by Playnite or another app paused automatic starts.");
+            }
+            finally { external.Dispose(); }
+        }
+    }
+
+    private static void TestIdentityFailureQuickRetry()
+    {
+        var executable = Assembly.GetExecutingAssembly().Location;
+        var catalog = CreateGameList("{\"games\":[{\"title\":\"Alpha Game\",\"normalized\":\"alphagame\",\"profile\":\"standard\",\"adaptiveTriggers\":true}]}");
+        var settings = new TraySettings();
+        settings.SetGameExecutable("alphagame", @"C:\Fake\Alpha.exe");
+        var manager = new EngineSessionManager(() => executable, "Local\\ASB.QuickRetryTest." + Guid.NewGuid().ToString("N"), () => false);
+        Environment.SetEnvironmentVariable("ASB_TEST_FAKE_FAILURE", "3|APEX identity check failed: receiver asleep (test).");
+        try
+        {
+            string error;
+            int exitCode;
+            Assert(!manager.StartSession("Alpha Game", "standard", settings, 0, out error, out exitCode) &&
+                   exitCode == 3 && error == "APEX identity check failed: receiver asleep (test).",
+                "The engine failure exit code was not reported: " + exitCode + " " + error);
+            using (var monitor = new ProcessMonitorService(catalog, manager, null, settings, false))
+            {
+                var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                var check = typeof(ProcessMonitorService).GetMethod("CheckCandidateProcess", flags);
+                var cooldowns = (Dictionary<uint, DateTime>)typeof(ProcessMonitorService).GetField("retryCooldowns", flags).GetValue(monitor);
+                var paused = new List<string>();
+                monitor.AutomaticStartPaused += title => paused.Add(title);
+                Action<uint> attemptProcess = pid => check.Invoke(monitor, new object[] { pid, "Alpha.exe", @"C:\Fake\Alpha.exe", 0L, null, "test", false });
+                Action attempt = () => attemptProcess(4001);
+                var timers = (System.Collections.IDictionary)typeof(ProcessMonitorService).GetField("quickRetryTimers", flags).GetValue(monitor);
+
+                attemptProcess(4009);
+                lock (cooldowns) cooldowns[4009] = DateTime.MaxValue;
+                attempt();
+                DateTime retryAt;
+                lock (cooldowns) retryAt = cooldowns[4001];
+                Assert(retryAt <= DateTime.UtcNow.AddSeconds(2.5) && paused.Count == 0,
+                    "An identity check failure waited for the normal detection cycle.");
+                attemptProcess(4005);
+                WaitUntil(() => { lock (cooldowns) return !cooldowns.ContainsKey(4001) && !cooldowns.ContainsKey(4005); },
+                    TimeSpan.FromSeconds(5), "A second quick retry cancelled the first process's quick retry.");
+                WaitUntil(() => { lock (cooldowns) return timers.Count == 0; }, TimeSpan.FromSeconds(3),
+                    "Quick retry timers were not released.");
+                lock (cooldowns) retryAt = cooldowns[4009];
+                Assert(retryAt == DateTime.MaxValue, "A quick retry released a cooldown it did not schedule.");
+                for (int i = 0; i < 3; i++)
+                {
+                    lock (cooldowns) cooldowns.Remove(4001);
+                    attempt();
+                    lock (cooldowns) retryAt = cooldowns[4001];
+                    Assert(paused.Count == 0 && !monitor.HasPausedAutomaticStart &&
+                           retryAt > DateTime.UtcNow.AddSeconds(8) && retryAt < DateTime.MaxValue,
+                        "Repeated identity check failures stopped the normal automatic retries.");
+                }
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ASB_TEST_FAKE_FAILURE", null);
+            manager.Dispose();
         }
     }
 

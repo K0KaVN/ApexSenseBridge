@@ -77,6 +77,8 @@
   "Loc_NotificationWarning": "ApexSenseBridge · Cảnh báo",
   "Loc_NotificationManualFixTitle": "Yêu cầu cài đặt thủ công",
   "Loc_NotificationManualFixBody": "{0} yêu cầu sửa đổi thủ công để tương thích. ApexSenseBridge không kích hoạt để tay cầm vật lý luôn sẵn sàng.",
+  "Loc_NotificationStartPausedTitle": "Đã tạm dừng tự động khởi động",
+  "Loc_NotificationStartPausedBody": "ApexSenseBridge không thể khởi động cho {0} hai lần liên tiếp với cùng một lỗi. Ứng dụng sẽ thử lại khi trò chơi khởi động lại hoặc khi bạn nhấp Thử lại trên trang chủ.",
   "Loc_StatusBadgeStandby": "● Chờ",
   "Loc_StatusBadgeActive": "● Cầu nối đang hoạt động",
   "Loc_NoActiveGame": "Không có trò chơi nào hoạt động",

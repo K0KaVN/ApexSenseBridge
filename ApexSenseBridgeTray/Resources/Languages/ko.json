@@ -77,6 +77,8 @@
   "Loc_NotificationWarning": "ApexSenseBridge · 경고",
   "Loc_NotificationManualFixTitle": "수동 설정 필요",
   "Loc_NotificationManualFixBody": "{0} 게임은 수동 호환성 패치가 필요합니다. ApexSenseBridge가 활성화되지 않았으므로 기본 컨트롤러를 그대로 사용할 수 있습니다.",
+  "Loc_NotificationStartPausedTitle": "자동 시작 일시 중지됨",
+  "Loc_NotificationStartPausedBody": "ApexSenseBridge가 {0}에서 같은 오류로 두 번 연속 시작하지 못했습니다. 게임을 다시 시작하거나 홈 화면에서 ‘다시 시도’를 클릭하면 다시 시도합니다.",
   "Loc_StatusBadgeStandby": "● 대기 중",
   "Loc_StatusBadgeActive": "● 브리지 활성",
   "Loc_NoActiveGame": "실행 중인 게임 없음",

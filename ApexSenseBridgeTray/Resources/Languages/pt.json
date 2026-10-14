@@ -77,6 +77,8 @@
   "Loc_NotificationWarning": "ApexSenseBridge · Aviso",
   "Loc_NotificationManualFixTitle": "Configuração manual necessária",
   "Loc_NotificationManualFixBody": "{0} requer uma correção manual de compatibilidade. O ApexSenseBridge não foi ativado para que o controle físico permaneça utilizável.",
+  "Loc_NotificationStartPausedTitle": "Início automático pausado",
+  "Loc_NotificationStartPausedBody": "O ApexSenseBridge não conseguiu iniciar para {0} duas vezes seguidas com o mesmo erro. Uma nova tentativa será feita quando o jogo for reiniciado ou quando você clicar em Tentar novamente na página inicial.",
   "Loc_StatusBadgeStandby": "● Em espera",
   "Loc_StatusBadgeActive": "● Ponte ativa",
   "Loc_NoActiveGame": "Nenhum jogo ativo",

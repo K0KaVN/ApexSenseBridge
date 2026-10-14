@@ -77,6 +77,8 @@
   "Loc_NotificationWarning": "ApexSenseBridge · 警告",
   "Loc_NotificationManualFixTitle": "手動セットアップが必要",
   "Loc_NotificationManualFixBody": "{0} には手動での互換性修正が必要です。物理コントローラーを引き続き使用できるようにするため、ApexSenseBridgeはアクティブ化されませんでした。",
+  "Loc_NotificationStartPausedTitle": "自動起動を一時停止しました",
+  "Loc_NotificationStartPausedBody": "{0} で ApexSenseBridge の起動が同じエラーで 2 回連続して失敗しました。ゲームの再起動時、またはホーム画面で「再試行」をクリックしたときに再試行します。",
   "Loc_StatusBadgeStandby": "● スタンバイ",
   "Loc_StatusBadgeActive": "● ブリッジ動作中",
   "Loc_NoActiveGame": "アクティブなゲームなし",

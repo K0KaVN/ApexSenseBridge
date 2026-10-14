@@ -77,6 +77,8 @@
   "Loc_NotificationWarning": "ApexSenseBridge · 警告",
   "Loc_NotificationManualFixTitle": "需要手动配置",
   "Loc_NotificationManualFixBody": "{0} 需要手动兼容性修复。ApexSenseBridge 未启动，因此实体手柄仍可正常使用。",
+  "Loc_NotificationStartPausedTitle": "自动启动已暂停",
+  "Loc_NotificationStartPausedBody": "ApexSenseBridge 为 {0} 连续两次启动失败，且错误相同。重新启动游戏或在主页点击“重试”后将再次尝试。",
   "Loc_StatusBadgeStandby": "● 待机中",
   "Loc_StatusBadgeActive": "● 桥接运行中",
   "Loc_NoActiveGame": "暂无活动游戏",

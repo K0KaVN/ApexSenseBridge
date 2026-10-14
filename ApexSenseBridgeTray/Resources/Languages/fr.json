@@ -77,6 +77,8 @@
   "Loc_NotificationWarning": "ApexSenseBridge · Avertissement",
   "Loc_NotificationManualFixTitle": "Configuration manuelle requise",
   "Loc_NotificationManualFixBody": "{0} nécessite un correctif de compatibilité manuel. ApexSenseBridge n’a pas été activé afin que la manette physique reste disponible.",
+  "Loc_NotificationStartPausedTitle": "Démarrage automatique suspendu",
+  "Loc_NotificationStartPausedBody": "ApexSenseBridge n’a pas pu démarrer pour {0} deux fois de suite avec la même erreur. Une nouvelle tentative aura lieu au redémarrage du jeu ou quand vous cliquerez sur Réessayer dans l’accueil.",
   "Loc_StatusBadgeStandby": "● En veille",
   "Loc_StatusBadgeActive": "● Pont actif",
   "Loc_NoActiveGame": "Aucun jeu actif",

@@ -774,15 +774,16 @@ bool sameTransport(const InputTransportStatus& left,
 }
 
 int recoveryCommand() {
-    bool recovered = false;
+    asb::platform::ControllerRecoveryReport report;
     std::string error;
     if (!asb::platform::TemporaryPhysicalControllerIsolation::recoverPending(
-            recovered, error)) {
+            report, error)) {
         std::cerr << "Recovery failed: " << error << '\n';
         return 2;
     }
-    std::cout << (recovered ? "Recovery completed.\n"
-                            : "No pending recovery was found.\n");
+    std::cout << (report.recovered ? "Recovery completed.\n"
+                                   : "No pending recovery was found.\n");
+    if (!report.notice.empty()) std::cout << report.notice << '\n';
     return 0;
 }
 

@@ -77,6 +77,8 @@
   "Loc_NotificationWarning": "ApexSenseBridge · Предупреждение",
   "Loc_NotificationManualFixTitle": "Требуется ручная настройка",
   "Loc_NotificationManualFixBody": "Для {0} требуется ручной патч совместимости. ApexSenseBridge не был активирован, поэтому физический контроллер остаётся доступным.",
+  "Loc_NotificationStartPausedTitle": "Автозапуск приостановлен",
+  "Loc_NotificationStartPausedBody": "ApexSenseBridge дважды подряд не удалось запустить для {0} с одной и той же ошибкой. Новая попытка будет сделана после перезапуска игры или нажатия «Повторить» в главном окне.",
   "Loc_StatusBadgeStandby": "● Ожидание",
   "Loc_StatusBadgeActive": "● Мост активен",
   "Loc_NoActiveGame": "Нет активной игры",

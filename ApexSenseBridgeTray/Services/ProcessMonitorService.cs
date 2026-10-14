@@ -25,6 +25,8 @@ namespace ApexSenseBridgeTray.Services
         private readonly HashSet<uint> manualFixWarningProcesses = new HashSet<uint>();
         private readonly object sessionStateLock = new object();
         private readonly GameProcessSessionTracker processSession = new GameProcessSessionTracker();
+        private readonly StartRetryPolicy startRetries = new StartRetryPolicy();
+        private readonly Dictionary<uint, Timer> quickRetryTimers = new Dictionary<uint, Timer>();
 
         private ManagementEventWatcher startWatcher;
         private ManagementEventWatcher stopWatcher;
@@ -39,6 +41,35 @@ namespace ApexSenseBridgeTray.Services
         public event Action<SupportedGame, string> GameDetected;
         public event Action<string> GameExited;
         public event Action<SupportedGame> ManualFixRequired;
+        public event Action<string> AutomaticStartPaused;
+
+        public bool HasPausedAutomaticStart
+        {
+            get { lock (retryCooldowns) return startRetries.HasPausedProcess; }
+        }
+
+        public void RetryPausedStarts()
+        {
+            lock (retryCooldowns)
+            {
+                startRetries.Reset();
+                retryCooldowns.Clear();
+            }
+            ForceCheck();
+        }
+
+        public void ReportControllerStatus(string status)
+        {
+            bool sessionInProgress = SessionOwnedElsewhere();
+            bool changed;
+            lock (retryCooldowns) changed = startRetries.ObserveController(status, sessionInProgress);
+            if (changed) RetryPausedStarts();
+        }
+
+        private bool SessionOwnedElsewhere()
+        {
+            return sessionManager.IsSessionActive || sessionManager.IsBusy || sessionManager.HasExternalSession;
+        }
 
         public ProcessMonitorService(
             CloudGameListService gameListService,
@@ -152,6 +183,7 @@ namespace ApexSenseBridgeTray.Services
                     {
                         manualFixWarningProcesses.Remove(pid);
                     }
+                    ForgetStartFailures(pid);
                     if (learningService != null)
                     {
                         learningService.CancelObservation(pid, "process stopped (WMI)");
@@ -188,6 +220,7 @@ namespace ApexSenseBridgeTray.Services
             try
             {
                 PruneExitedTrackedProcesses();
+                PruneStartRetries();
 
                 if (settings == null || !settings.AutoDetectGames)
                 {
@@ -341,6 +374,7 @@ namespace ApexSenseBridgeTray.Services
                     {
                         manualFixWarningProcesses.Remove(pid);
                     }
+                    ForgetStartFailures(pid);
                     if (learningService != null)
                     {
                         learningService.CancelObservation(pid, "process no longer enumerated");
@@ -646,20 +680,15 @@ namespace ApexSenseBridgeTray.Services
                         // process. It must not wait for controller initialization,
                         // which can legitimately fail or take up to the timeout.
                         BeginExecutableObservation(pid, exePath, game, matchedBy);
+                        int exitCode;
                         if (!sessionManager.StartSession(
                                 game.Title, game.Profile, settings,
-                                apexProfileSlot, out error))
+                                apexProfileSlot, out error, out exitCode))
                         {
-                            lock (retryCooldowns)
-                            {
-                                retryCooldowns[pid] = DateTime.UtcNow.AddSeconds(10);
-                            }
-                            lock (evaluatedProcesses)
-                            {
-                                evaluatedProcesses.Remove(pid);
-                            }
+                            ScheduleStartRetry(game, pid, exitCode, error);
                             return;
                         }
+                        ForgetStartFailures(pid);
 
                         long readyAt = Stopwatch.GetTimestamp();
                         candidateToStartMs = ElapsedMilliseconds(
@@ -716,6 +745,100 @@ namespace ApexSenseBridgeTray.Services
             catch (Exception ex)
             {
                 LogEvent("[HandleGameDetected] " + ex.Message);
+            }
+        }
+
+        private void ScheduleStartRetry(SupportedGame game, uint pid, int exitCode, string error)
+        {
+            TimeSpan? delay = StartRetryPolicy.RetryDelay;
+            bool sessionOwnedElsewhere = SessionOwnedElsewhere();
+            lock (retryCooldowns)
+            {
+                if (!sessionOwnedElsewhere) delay = startRetries.RecordFailure(pid, exitCode, error);
+                var retryAt = delay.HasValue ? DateTime.UtcNow.Add(delay.Value) : DateTime.MaxValue;
+                retryCooldowns[pid] = retryAt;
+                if (delay.HasValue && delay.Value < StartRetryPolicy.RetryDelay)
+                {
+                    Timer previous;
+                    if (quickRetryTimers.TryGetValue(pid, out previous)) previous.Dispose();
+                    Timer timer = null;
+                    timer = new Timer(state => ReleaseRetryCooldown(pid, retryAt, timer), null,
+                        Timeout.Infinite, Timeout.Infinite);
+                    quickRetryTimers[pid] = timer;
+                    timer.Change(delay.Value, Timeout.InfiniteTimeSpan);
+                }
+            }
+            lock (evaluatedProcesses)
+            {
+                evaluatedProcesses.Remove(pid);
+            }
+            if (!delay.HasValue)
+            {
+                LogDetection(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Paused automatic starts for PID {0} ('{1}') after {2} identical failures (code {3}): {4}",
+                    pid, game.Title, StartRetryPolicy.IdenticalFailureLimit, exitCode, error));
+                var handler = AutomaticStartPaused;
+                if (handler != null) handler(game.Title);
+            }
+        }
+
+        private void ReleaseRetryCooldown(uint pid, DateTime scheduled, Timer timer)
+        {
+            lock (retryCooldowns)
+            {
+                Timer current;
+                if (quickRetryTimers.TryGetValue(pid, out current) && ReferenceEquals(current, timer))
+                    quickRetryTimers.Remove(pid);
+                timer.Dispose();
+                DateTime retryAt;
+                if (isDisposed || !retryCooldowns.TryGetValue(pid, out retryAt) || retryAt != scheduled) return;
+                retryCooldowns.Remove(pid);
+            }
+            lock (evaluatedProcesses)
+            {
+                evaluatedProcesses.Remove(pid);
+            }
+            nextProcessSweepUtc = DateTime.MinValue;
+        }
+
+        private void PruneStartRetries()
+        {
+            lock (retryCooldowns)
+            {
+                if (retryCooldowns.Count == 0 && quickRetryTimers.Count == 0 && !startRetries.HasEntries) return;
+            }
+            var processIds = NativeMethods.GetProcessIds();
+            if (processIds.Length == 0) return;
+            PruneStartRetries(new HashSet<uint>(processIds));
+        }
+
+        private void PruneStartRetries(ICollection<uint> runningProcessIds)
+        {
+            lock (retryCooldowns)
+            {
+                var stopped = new List<uint>();
+                foreach (var pid in retryCooldowns.Keys)
+                    if (!runningProcessIds.Contains(pid)) stopped.Add(pid);
+                foreach (var pid in stopped) retryCooldowns.Remove(pid);
+                stopped.Clear();
+                foreach (var pid in quickRetryTimers.Keys)
+                    if (!runningProcessIds.Contains(pid)) stopped.Add(pid);
+                foreach (var pid in stopped)
+                {
+                    quickRetryTimers[pid].Dispose();
+                    quickRetryTimers.Remove(pid);
+                }
+                startRetries.Retain(runningProcessIds);
+            }
+        }
+
+        private void ForgetStartFailures(uint pid)
+        {
+            lock (retryCooldowns)
+            {
+                startRetries.Forget(pid);
+                retryCooldowns.Remove(pid);
             }
         }
 
@@ -1086,6 +1209,11 @@ namespace ApexSenseBridgeTray.Services
             if (pollTimer != null)
             {
                 pollTimer.Dispose();
+            }
+            lock (retryCooldowns)
+            {
+                foreach (var timer in quickRetryTimers.Values) timer.Dispose();
+                quickRetryTimers.Clear();
             }
 
             bool hadTrackedSession;

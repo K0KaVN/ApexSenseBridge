@@ -77,6 +77,8 @@
   "Loc_NotificationWarning": "ApexSenseBridge · Warning",
   "Loc_NotificationManualFixTitle": "Manual setup required",
   "Loc_NotificationManualFixBody": "{0} requires a manual compatibility fix. ApexSenseBridge was not activated, so the physical controller remains available.",
+  "Loc_NotificationStartPausedTitle": "Automatic start paused",
+  "Loc_NotificationStartPausedBody": "ApexSenseBridge could not start for {0} twice in a row with the same error. It will try again when the game restarts, or when you click Retry on the home page.",
   "Loc_StatusBadgeStandby": "● Standby",
   "Loc_StatusBadgeActive": "● Bridge active",
   "Loc_NoActiveGame": "No active game",

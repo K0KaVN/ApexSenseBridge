@@ -40,8 +40,14 @@ namespace asb::platform {
 namespace {
 
 constexpr wchar_t kHidHideDevice[] = L"\\\\.\\HidHide";
-constexpr wchar_t kRecoveryKey[] =
-    L"Software\\ApexSenseBridge\\PhysicalControllerIsolation";
+constexpr const wchar_t* kRecoveryKey = detail::kRecoveryRegistryKey.data();
+constexpr const wchar_t* kDeferredRestoreKey =
+    detail::kDeferredApexRestoreRegistryKey.data();
+constexpr DWORD kDeferredRestoreVersion = 1;
+constexpr char kDeferredApexNotice[] =
+    "The original Apex 5 profile and input settings will be restored "
+    "automatically the next time that controller is awake and connected the "
+    "same way (same USB cable or same 2.4 GHz receiver).";
 constexpr wchar_t kRunOnceKey[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce";
 constexpr wchar_t kRunOnceValue[] =
@@ -144,12 +150,43 @@ struct RecoverySnapshot {
     DWORD apexUsagePage = 0;
 };
 
+using RestoreOutcome = detail::ApexRestoreOutcome;
+constexpr int kRestoreAttempts = 3;
+constexpr int kDeferredRestoreAttempts = 1;
+
 bool setRecoveryRegistryString(HKEY key, const wchar_t* name,
                                std::wstring_view value,
                                std::string& error);
 bool getRecoveryRegistryString(HKEY key, const wchar_t* name,
                                std::wstring& value,
                                std::string& error);
+
+void appendNotice(std::string& notice, std::string_view text) {
+    if (!notice.empty()) notice += ' ';
+    notice += text;
+}
+
+bool matchesApexRestoreTarget(const detail::ApexSettingsRestore& settings,
+                              const HidDeviceInfo& candidate) noexcept {
+    return detail::matchesApexProfileRecoveryDevice(
+        candidate, settings.vendorPath, settings.containerId,
+        settings.vendorId, settings.productId, settings.usagePage);
+}
+
+detail::ApexSettingsRestore apexSettings(const RecoverySnapshot& snapshot) {
+    detail::ApexSettingsRestore settings{};
+    settings.vendorPath = snapshot.apexVendorPath;
+    settings.containerId = snapshot.apexContainerId;
+    settings.vendorId = static_cast<std::uint16_t>(snapshot.apexVendorId);
+    settings.productId = static_cast<std::uint16_t>(snapshot.apexProductId);
+    settings.usagePage = static_cast<std::uint16_t>(snapshot.apexUsagePage);
+    settings.profilePending = snapshot.profileRestorePending;
+    settings.profileSlot = static_cast<std::uint8_t>(snapshot.originalProfileSlot);
+    settings.inputTransportPending = snapshot.inputTransportRestorePending;
+    settings.controllerData = snapshot.originalControllerData;
+    settings.rawData = snapshot.originalRawData;
+    return settings;
+}
 
 std::string windowsError(std::string_view operation, DWORD code) {
     return std::string(operation) + " failed (Windows error " +
@@ -664,6 +701,140 @@ bool setInputTransportRestorePending(bool pending, std::string& error) {
                             pending ? 1 : 0, error);
 }
 
+bool writeDeferredApexRestore(const detail::ApexSettingsRestore& settings,
+                              std::string& error) {
+    HKEY rawKey = nullptr;
+    const auto status = RegCreateKeyExW(
+        HKEY_CURRENT_USER, kDeferredRestoreKey, 0, nullptr, 0, KEY_SET_VALUE,
+        nullptr, &rawKey, nullptr);
+    if (status != ERROR_SUCCESS) {
+        error = windowsError("Saving the deferred Apex 5 settings", status);
+        return false;
+    }
+    ScopedRegistryKey key(rawKey);
+    return setRecoveryRegistryString(key.get(), L"ApexVendorPath",
+                                     settings.vendorPath, error) &&
+           setRecoveryRegistryString(key.get(), L"ApexContainerId",
+                                     settings.containerId, error) &&
+           setRegistryDword(key.get(), L"ApexVendorId", settings.vendorId, error) &&
+           setRegistryDword(key.get(), L"ApexProductId", settings.productId, error) &&
+           setRegistryDword(key.get(), L"ApexUsagePage", settings.usagePage, error) &&
+           setRegistryDword(key.get(), L"OriginalProfileSlot",
+                            settings.profileSlot, error) &&
+           setRegistryDword(key.get(), L"OriginalControllerData",
+                            settings.controllerData ? 1 : 0, error) &&
+           setRegistryDword(key.get(), L"OriginalRawData",
+                            settings.rawData ? 1 : 0, error) &&
+           setRegistryDword(key.get(), L"ProfileRestorePending",
+                            settings.profilePending ? 1 : 0, error) &&
+           setRegistryDword(key.get(), L"InputTransportRestorePending",
+                            settings.inputTransportPending ? 1 : 0, error) &&
+           setRegistryDword(key.get(), L"Version", kDeferredRestoreVersion, error);
+}
+
+bool readDeferredApexRestore(std::optional<detail::ApexSettingsRestore>& deferred,
+                             bool& replaceable,
+                             std::string& error) {
+    deferred.reset();
+    replaceable = true;
+    HKEY rawKey = nullptr;
+    const auto status = RegOpenKeyExW(
+        HKEY_CURRENT_USER, kDeferredRestoreKey, 0, KEY_QUERY_VALUE, &rawKey);
+    if (status == ERROR_FILE_NOT_FOUND) return true;
+    replaceable = false;
+    if (status != ERROR_SUCCESS) {
+        error = windowsError("Opening the deferred Apex 5 settings", status);
+        return false;
+    }
+    ScopedRegistryKey key(rawKey);
+    if (RegQueryValueExW(key.get(), L"Version", nullptr, nullptr, nullptr,
+                         nullptr) == ERROR_FILE_NOT_FOUND) {
+        replaceable = true;
+        error = "The deferred Apex 5 settings record is incomplete.";
+        return false;
+    }
+    detail::ApexSettingsRestore settings{};
+    DWORD version = 0;
+    DWORD vendorId = 0;
+    DWORD productId = 0;
+    DWORD usagePage = 0;
+    DWORD profileSlot = 0;
+    DWORD controllerData = 0;
+    DWORD rawData = 0;
+    DWORD profilePending = 0;
+    DWORD inputTransportPending = 0;
+    if (!getRegistryDword(key.get(), L"Version", version, error) ||
+        !getRecoveryRegistryString(key.get(), L"ApexVendorPath",
+                                   settings.vendorPath, error) ||
+        !getRecoveryRegistryString(key.get(), L"ApexContainerId",
+                                   settings.containerId, error) ||
+        !getRegistryDword(key.get(), L"ApexVendorId", vendorId, error) ||
+        !getRegistryDword(key.get(), L"ApexProductId", productId, error) ||
+        !getRegistryDword(key.get(), L"ApexUsagePage", usagePage, error) ||
+        !getRegistryDword(key.get(), L"OriginalProfileSlot", profileSlot, error) ||
+        !getRegistryDword(key.get(), L"OriginalControllerData",
+                          controllerData, error) ||
+        !getRegistryDword(key.get(), L"OriginalRawData", rawData, error) ||
+        !getRegistryDword(key.get(), L"ProfileRestorePending",
+                          profilePending, error) ||
+        !getRegistryDword(key.get(), L"InputTransportRestorePending",
+                          inputTransportPending, error)) {
+        return false;
+    }
+    if (version != kDeferredRestoreVersion || settings.vendorPath.empty() ||
+        vendorId > 0xFFFF || productId > 0xFFFF || usagePage > 0xFFFF ||
+        controllerData > 1 || rawData > 1 || profilePending > 1 ||
+        inputTransportPending > 1 ||
+        (profilePending == 0 && inputTransportPending == 0) ||
+        (profilePending != 0 && profileSlot >= flydigi::kProfileSlotCount)) {
+        error = "The deferred Apex 5 settings record contains invalid values.";
+        return false;
+    }
+    settings.vendorId = static_cast<std::uint16_t>(vendorId);
+    settings.productId = static_cast<std::uint16_t>(productId);
+    settings.usagePage = static_cast<std::uint16_t>(usagePage);
+    settings.profilePending = profilePending != 0;
+    settings.profileSlot = static_cast<std::uint8_t>(
+        profilePending != 0 ? profileSlot : 0);
+    settings.inputTransportPending = inputTransportPending != 0;
+    settings.controllerData = controllerData != 0;
+    settings.rawData = rawData != 0;
+    deferred = std::move(settings);
+    replaceable = true;
+    return true;
+}
+
+std::optional<detail::ApexSettingsRestore> loadDeferredApexRestore(
+    std::string& notice, bool& replaceable) {
+    std::optional<detail::ApexSettingsRestore> deferred;
+    std::string error;
+    if (readDeferredApexRestore(deferred, replaceable, error)) return deferred;
+    appendNotice(notice, "Skipped an unreadable deferred Apex 5 settings record "
+                         "and left it unchanged (" + error + ").");
+    return std::nullopt;
+}
+
+std::optional<detail::ApexSettingsRestore> loadDeferredApexRestore(
+    std::string& notice) {
+    bool replaceable = false;
+    return loadDeferredApexRestore(notice, replaceable);
+}
+
+bool recoveryMarkerOwnedBy(DWORD ownerProcessId) {
+    std::optional<std::uint32_t> currentOwner;
+    HKEY rawKey = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kRecoveryKey, 0, KEY_QUERY_VALUE,
+                      &rawKey) == ERROR_SUCCESS) {
+        ScopedRegistryKey key(rawKey);
+        DWORD owner = 0;
+        std::string ignored;
+        if (getRegistryDword(key.get(), L"OwnerProcessId", owner, ignored)) {
+            currentOwner = owner;
+        }
+    }
+    return detail::recoveryMarkerUnchanged(currentOwner, ownerProcessId);
+}
+
 bool processIsRunning(DWORD processId) noexcept {
     if (processId == 0) return false;
     ScopedHandle process(OpenProcess(SYNCHRONIZE, FALSE, processId));
@@ -1125,58 +1296,91 @@ bool apexGameDevicePaths(const HidDeviceInfo& apexInterface,
     return true;
 }
 
-bool selectRecoveryCandidate(const RecoverySnapshot& snapshot,
-                             HidDeviceInfo& selected,
-                             std::string_view purpose,
-                             std::string& error) {
+detail::ApexRestoreTarget selectRecoveryCandidate(
+    const detail::ApexSettingsRestore& settings,
+    HidDeviceInfo& selected,
+    std::string_view purpose,
+    std::string& error) {
     std::string enumerationError;
     const auto candidates = flydigi::Apex5Device::findCandidates(enumerationError);
+    const auto target = detail::locateApexRestoreTarget(
+        settings, candidates, !enumerationError.empty());
+    if (target == detail::ApexRestoreTarget::Absent) {
+        error = "The saved Apex 5 " + std::string(purpose) +
+                " interface is unavailable; "
+                "wake the controller and retry recovery";
+        return target;
+    }
+    if (target == detail::ApexRestoreTarget::Unknown) {
+        error = "Could not enumerate the saved Apex 5 " + std::string(purpose) +
+                " interface: " + enumerationError;
+        return target;
+    }
+
     std::vector<HidDeviceInfo> matches;
     for (const auto& candidate : candidates) {
-        if (detail::matchesApexProfileRecoveryDevice(
-                candidate,
-                snapshot.apexVendorPath,
-                snapshot.apexContainerId,
-                static_cast<std::uint16_t>(snapshot.apexVendorId),
-                static_cast<std::uint16_t>(snapshot.apexProductId),
-                static_cast<std::uint16_t>(snapshot.apexUsagePage))) {
+        if (matchesApexRestoreTarget(settings, candidate)) {
             matches.push_back(candidate);
         }
     }
-    if (matches.empty()) {
-        error = enumerationError.empty()
-            ? "The saved Apex 5 " + std::string(purpose) +
-                  " interface is unavailable; "
-              "wake the controller and retry recovery"
-            : "Could not enumerate the saved Apex 5 " + std::string(purpose) +
-                  " interface: " +
-                  enumerationError;
-        return false;
-    }
-
     const auto exact = std::find_if(
-        matches.begin(), matches.end(), [&snapshot](const HidDeviceInfo& candidate) {
-            return equalsCaseInsensitive(candidate.path, snapshot.apexVendorPath);
+        matches.begin(), matches.end(), [&settings](const HidDeviceInfo& candidate) {
+            return equalsCaseInsensitive(candidate.path, settings.vendorPath);
         });
     if (exact == matches.end() && matches.size() != 1) {
         error = "Several Apex 5 interfaces match the saved " +
                 std::string(purpose) + " container; "
                 "refusing to restore an ambiguous controller";
-        return false;
+        return detail::ApexRestoreTarget::Unknown;
     }
     selected = exact != matches.end() ? *exact : matches.front();
-    return true;
+    return target;
 }
 
-bool restoreApexProfile(const RecoverySnapshot& snapshot,
-                        std::string& error) {
-    HidDeviceInfo selected{};
-    if (!selectRecoveryCandidate(snapshot, selected, "profile-recovery", error)) {
-        return false;
+bool applyApexProfile(flydigi::Apex5Device& device, std::uint8_t slot, int attempt,
+                      std::string& error) {
+    std::string applyError;
+    const bool acknowledged = device.applyProfile(slot, applyError);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    flydigi::ProfileStatus status{};
+    std::string statusError;
+    const bool statusRead = device.readProfileStatus(status, statusError);
+    if (statusRead && !status.switchBank && status.slot == slot) return true;
+
+    std::ostringstream detail;
+    detail << "Apex 5 profile restore attempt " << attempt << " failed";
+    if (!acknowledged && !applyError.empty()) {
+        detail << ": " << applyError;
+    } else if (!statusRead && !statusError.empty()) {
+        detail << ": " << statusError;
+    } else if (statusRead) {
+        detail << ": controller reported raw slot "
+               << static_cast<unsigned int>(status.rawSlot);
     }
+    error = detail.str();
+    return false;
+}
+
+bool applyApexInputTransport(flydigi::Apex5Device& device, bool controllerData,
+                             bool rawData, int attempt, std::string& error) {
+    std::string transportError;
+    if (device.setInputTransport(controllerData, rawData, transportError)) return true;
+    error = "Apex 5 input-transport restore attempt " + std::to_string(attempt) +
+            " failed: " + transportError;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    return false;
+}
+
+RestoreOutcome restoreApexProfile(const detail::ApexSettingsRestore& settings,
+                                  int attempts, std::string& error) {
+    HidDeviceInfo selected{};
+    const auto target =
+        selectRecoveryCandidate(settings, selected, "profile-recovery", error);
+    if (target == detail::ApexRestoreTarget::Absent) return RestoreOutcome::Absent;
+    if (target != detail::ApexRestoreTarget::Present) return RestoreOutcome::Failed;
 
     std::string lastError;
-    for (int attempt = 1; attempt <= 3; ++attempt) {
+    for (int attempt = 1; attempt <= attempts; ++attempt) {
         std::string openError;
         auto device = flydigi::Apex5Device::open(selected, openError);
         if (!device || !device->verifyIdentity(openError) ||
@@ -1184,48 +1388,29 @@ bool restoreApexProfile(const RecoverySnapshot& snapshot,
             lastError = openError.empty()
                 ? "The saved recovery interface is not a verified Apex 5"
                 : openError;
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (attempt < attempts) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
             continue;
         }
-
-        std::string applyError;
-        const bool acknowledged = device->applyProfile(
-            static_cast<std::uint8_t>(snapshot.originalProfileSlot), applyError);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        flydigi::ProfileStatus status{};
-        std::string statusError;
-        const bool statusRead = device->readProfileStatus(status, statusError);
-        if (statusRead && !status.switchBank &&
-            status.slot == snapshot.originalProfileSlot) {
-            return true;
+        if (applyApexProfile(*device, settings.profileSlot, attempt, lastError)) {
+            return RestoreOutcome::Restored;
         }
-
-        std::ostringstream detail;
-        detail << "Apex 5 profile restore attempt " << attempt << " failed";
-        if (!acknowledged && !applyError.empty()) {
-            detail << ": " << applyError;
-        } else if (!statusRead && !statusError.empty()) {
-            detail << ": " << statusError;
-        } else if (statusRead) {
-            detail << ": controller reported raw slot "
-                   << static_cast<unsigned int>(status.rawSlot);
-        }
-        lastError = detail.str();
     }
     error = lastError;
-    return false;
+    return RestoreOutcome::Unresponsive;
 }
 
-bool restoreApexInputTransport(const RecoverySnapshot& snapshot,
-                               std::string& error) {
+RestoreOutcome restoreApexInputTransport(const detail::ApexSettingsRestore& settings,
+                                         int attempts, std::string& error) {
     HidDeviceInfo selected{};
-    if (!selectRecoveryCandidate(
-            snapshot, selected, "input-transport recovery", error)) {
-        return false;
-    }
+    const auto target = selectRecoveryCandidate(
+        settings, selected, "input-transport recovery", error);
+    if (target == detail::ApexRestoreTarget::Absent) return RestoreOutcome::Absent;
+    if (target != detail::ApexRestoreTarget::Present) return RestoreOutcome::Failed;
 
     std::string lastError;
-    for (int attempt = 1; attempt <= 3; ++attempt) {
+    for (int attempt = 1; attempt <= attempts; ++attempt) {
         std::string openError;
         auto device = flydigi::Apex5Device::open(selected, openError);
         if (!device || !device->verifyIdentity(openError) ||
@@ -1233,53 +1418,139 @@ bool restoreApexInputTransport(const RecoverySnapshot& snapshot,
             lastError = openError.empty()
                 ? "The saved input-transport interface is not a verified Apex 5"
                 : openError;
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (attempt < attempts) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
             continue;
         }
-        if (device->setInputTransport(
-                snapshot.originalControllerData,
-                snapshot.originalRawData, openError)) {
-            return true;
+        if (applyApexInputTransport(*device, settings.controllerData,
+                                    settings.rawData, attempt, lastError)) {
+            return RestoreOutcome::Restored;
         }
-        lastError = "Apex 5 input-transport restore attempt " +
-                    std::to_string(attempt) + " failed: " + openError;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     error = lastError;
+    return RestoreOutcome::Unresponsive;
+}
+
+RestoreOutcome restorePendingApexProfile(const detail::ApexSettingsRestore& settings,
+                                         DWORD owner, std::string& error) {
+    auto outcome = restoreApexProfile(settings, kRestoreAttempts, error);
+    if (outcome == RestoreOutcome::Restored && recoveryMarkerOwnedBy(owner) &&
+        !setProfileRestorePending(false, error)) {
+        outcome = RestoreOutcome::Failed;
+    }
+    return outcome;
+}
+
+RestoreOutcome restorePendingApexInputTransport(
+    const detail::ApexSettingsRestore& settings, DWORD owner, std::string& error) {
+    auto outcome = restoreApexInputTransport(settings, kRestoreAttempts, error);
+    if (outcome == RestoreOutcome::Restored && recoveryMarkerOwnedBy(owner) &&
+        !setInputTransportRestorePending(false, error)) {
+        outcome = RestoreOutcome::Failed;
+    }
+    return outcome;
+}
+
+bool settleDeferredApexRestore(const detail::ApexSettingsRestore& deferred,
+                               bool profileRestored,
+                               bool inputTransportRestored,
+                               std::string& notice) {
+    const auto remaining = detail::remainingDeferredApexRestore(
+        deferred, profileRestored, inputTransportRestored);
+    if (!remaining) {
+        RegDeleteTreeW(HKEY_CURRENT_USER, kDeferredRestoreKey);
+        appendNotice(notice, "Restored the original Apex 5 profile and input "
+                             "settings saved by an earlier session.");
+        return true;
+    }
+    if (remaining->profilePending != deferred.profilePending ||
+        remaining->inputTransportPending != deferred.inputTransportPending) {
+        std::string ignored;
+        (void)writeDeferredApexRestore(*remaining, ignored);
+    }
     return false;
 }
 
-bool recoverPendingImpl(bool& recovered, std::string& error) {
-    recovered = false;
-    RecoverySnapshot snapshot{};
-    bool exists = false;
-    if (!readRecoverySnapshot(snapshot, exists, error)) return false;
-    if (!exists) return true;
+void applyDeferredApexRestore(std::string& notice) {
+    const auto deferred = loadDeferredApexRestore(notice);
+    if (!deferred) return;
+    std::string error;
+    auto profile = RestoreOutcome::Restored;
+    if (deferred->profilePending) {
+        profile = restoreApexProfile(*deferred, kDeferredRestoreAttempts, error);
+    }
+    auto inputTransport = RestoreOutcome::Restored;
+    if (profile == RestoreOutcome::Restored && deferred->inputTransportPending) {
+        inputTransport =
+            restoreApexInputTransport(*deferred, kDeferredRestoreAttempts, error);
+    }
+    const bool profileRestored = profile == RestoreOutcome::Restored;
+    if (settleDeferredApexRestore(*deferred, profileRestored,
+                                  profileRestored &&
+                                      inputTransport == RestoreOutcome::Restored,
+                                  notice)) {
+        return;
+    }
+    if (profile == RestoreOutcome::Absent || inputTransport == RestoreOutcome::Absent) {
+        appendNotice(notice, kDeferredApexNotice);
+    } else {
+        appendNotice(notice, "The original Apex 5 settings saved by an earlier "
+                             "session could not be restored yet (" + error + ").");
+    }
+}
 
-    bool profileRestored = true;
+bool deferApexRestore(const detail::ApexSettingsRestore& pending,
+                      std::string& notice,
+                      std::string& error) {
+    bool replaceable = false;
+    auto deferred = loadDeferredApexRestore(notice, replaceable);
+    if (!replaceable) {
+        appendNotice(notice, "The newer pending Apex 5 settings were discarded "
+                             "because an unreadable deferred Apex 5 settings "
+                             "record is already saved.");
+        return true;
+    }
+    if (!detail::mergeDeferredApexRestore(deferred, pending)) {
+        appendNotice(notice, "Only one set of deferred Apex 5 settings can be "
+                             "kept: the settings already waiting for another "
+                             "Apex 5 connection were kept and the newer pending "
+                             "Apex 5 settings were discarded.");
+        return true;
+    }
+    if (!writeDeferredApexRestore(*deferred, error)) return false;
+    appendNotice(notice, kDeferredApexNotice);
+    return true;
+}
+
+bool recoverSnapshot(const RecoverySnapshot& snapshot,
+                     detail::ApexRecoveryMode mode,
+                     ControllerRecoveryReport& report,
+                     bool& deferredNow,
+                     std::string& error) {
+    const auto apex = apexSettings(snapshot);
+    const auto owner = snapshot.ownerProcessId;
+    const bool restoreApex = mode != detail::ApexRecoveryMode::SessionActivation;
+
+    auto profile = RestoreOutcome::Restored;
     std::string profileError;
     if (snapshot.profileRestorePending) {
-        profileRestored = restoreApexProfile(snapshot, profileError);
-        if (profileRestored && !setProfileRestorePending(false, profileError)) {
-            profileRestored = false;
-        }
+        profile = restoreApex ? restorePendingApexProfile(apex, owner, profileError)
+                              : RestoreOutcome::NotAttempted;
     }
 
     // A profile restore can rewrite the input-routing bits.
-    bool inputTransportRestored = true;
+    auto inputTransport = RestoreOutcome::Restored;
     std::string inputTransportError;
     if (snapshot.inputTransportRestorePending) {
-        inputTransportRestored = restoreApexInputTransport(
-            snapshot, inputTransportError);
-        if (inputTransportRestored &&
-            !setInputTransportRestorePending(false, inputTransportError)) {
-            inputTransportRestored = false;
-        }
+        inputTransport = restoreApex
+            ? restorePendingApexInputTransport(apex, owner, inputTransportError)
+            : RestoreOutcome::NotAttempted;
     }
 
     bool visibilityRestored = true;
     std::string visibilityError;
-    if (snapshot.phase != kPhasePrepared) {
+    if (snapshot.phase != kPhasePrepared && recoveryMarkerOwnedBy(owner)) {
         ScopedHandle device;
         visibilityRestored = openHidHide(device, visibilityError);
         if (visibilityRestored) {
@@ -1299,7 +1570,7 @@ bool recoverPendingImpl(bool& recovered, std::string& error) {
                            snapshot.originalActive,
                            "active state", visibilityError);
         }
-        if (visibilityRestored &&
+        if (visibilityRestored && recoveryMarkerOwnedBy(owner) &&
             !setRecoveryPhase(kPhasePrepared, visibilityError)) {
             visibilityRestored = false;
         }
@@ -1309,33 +1580,45 @@ bool recoverPendingImpl(bool& recovered, std::string& error) {
     // HidHide whitelist (for example after an in-place update). Once visibility
     // is restored, retry the profile recovery immediately instead of requiring
     // the user to run the command a second time.
-    if (!profileRestored && visibilityRestored && snapshot.profileRestorePending) {
+    if (restoreApex && profile != RestoreOutcome::Restored && visibilityRestored) {
         profileError.clear();
-        profileRestored = restoreApexProfile(snapshot, profileError);
-        if (profileRestored && !setProfileRestorePending(false, profileError)) {
-            profileRestored = false;
-        }
+        profile = restorePendingApexProfile(apex, owner, profileError);
     }
-    if (!inputTransportRestored && visibilityRestored &&
-        snapshot.inputTransportRestorePending) {
+    if (restoreApex && inputTransport != RestoreOutcome::Restored && visibilityRestored) {
         inputTransportError.clear();
-        inputTransportRestored = restoreApexInputTransport(
-            snapshot, inputTransportError);
-        if (inputTransportRestored &&
-            !setInputTransportRestorePending(false, inputTransportError)) {
-            inputTransportRestored = false;
-        }
+        inputTransport =
+            restorePendingApexInputTransport(apex, owner, inputTransportError);
     }
+    report.visibilityRestored = visibilityRestored;
 
-    if (inputTransportRestored && profileRestored && visibilityRestored) {
-        clearRecoveryRegistration();
-        recovered = true;
+    auto deferred = apex;
+    deferred.profilePending = detail::defersApexRestore(mode, profile);
+    deferred.inputTransportPending = detail::defersApexRestore(mode, inputTransport);
+    const bool profileSettled =
+        profile == RestoreOutcome::Restored || deferred.profilePending;
+    const bool inputTransportSettled =
+        inputTransport == RestoreOutcome::Restored || deferred.inputTransportPending;
+    if (visibilityRestored && profileSettled && inputTransportSettled) {
+        const std::string unanswered = profile == RestoreOutcome::Unresponsive
+            ? profileError
+            : inputTransport == RestoreOutcome::Unresponsive ? inputTransportError
+                                                            : std::string();
+        if (!unanswered.empty()) {
+            appendNotice(report.notice, "The saved Apex 5 controller did not answer (" +
+                                            unanswered + ").");
+        }
+        if (deferred.profilePending || deferred.inputTransportPending) {
+            if (!deferApexRestore(deferred, report.notice, error)) return false;
+            deferredNow = true;
+        }
+        if (recoveryMarkerOwnedBy(owner)) clearRecoveryRegistration();
+        report.recovered = true;
         return true;
     }
 
     error.clear();
-    if (!inputTransportRestored) error = inputTransportError;
-    if (!profileRestored) {
+    if (inputTransport != RestoreOutcome::Restored) error = inputTransportError;
+    if (profile != RestoreOutcome::Restored) {
         if (!error.empty()) error += "; ";
         error += profileError;
     }
@@ -1344,6 +1627,25 @@ bool recoverPendingImpl(bool& recovered, std::string& error) {
         error += visibilityError;
     }
     return false;
+}
+
+bool recoverPendingImpl(detail::ApexRecoveryMode mode,
+                        ControllerRecoveryReport& report,
+                        std::string& error) {
+    report = ControllerRecoveryReport{};
+    RecoverySnapshot snapshot{};
+    bool exists = false;
+    if (!readRecoverySnapshot(snapshot, exists, error)) {
+        report.visibilityRestored = false;
+        return false;
+    }
+    bool deferredNow = false;
+    const bool recovered =
+        !exists || recoverSnapshot(snapshot, mode, report, deferredNow, error);
+    if (mode == detail::ApexRecoveryMode::StaleSession && !deferredNow) {
+        applyDeferredApexRestore(report.notice);
+    }
+    return recovered;
 }
 
 } // namespace
@@ -1373,14 +1675,23 @@ bool TemporaryPhysicalControllerIsolation::activate(
     RecoverySnapshot stale{};
     bool staleExists = false;
     if (!readRecoverySnapshot(stale, staleExists, error)) return false;
-    if (staleExists) {
-        if (processIsRunning(stale.ownerProcessId)) {
-            error = "Another ApexSenseBridge process owns the active controller isolation.";
-            return false;
-        }
-        bool recovered = false;
-        if (!recoverPendingImpl(recovered, error)) return false;
-        impl_->recovered = recovered;
+    if (staleExists && processIsRunning(stale.ownerProcessId)) {
+        error = "Another ApexSenseBridge process owns the active controller isolation.";
+        return false;
+    }
+    ControllerRecoveryReport staleRecovery;
+    if (!recoverPendingImpl(detail::ApexRecoveryMode::SessionActivation,
+                            staleRecovery, error)) {
+        return false;
+    }
+    impl_->recovered = staleRecovery.recovered;
+    std::string deferredNotice;
+    const auto deferred = loadDeferredApexRestore(deferredNotice);
+    if (deferred && detail::deferredApexRestoreBlocksSession(*deferred, apexInterface)) {
+        error = "The original Apex 5 settings saved by an earlier session must be "
+                "restored on this controller before it is isolated; start the "
+                "session again to restore them.";
+        return false;
     }
 
     ScopedHandle device;
@@ -1515,9 +1826,10 @@ bool TemporaryPhysicalControllerIsolation::activate(
 
     if (!configured) {
         const auto activationError = error;
-        bool recovered = false;
+        ControllerRecoveryReport rollback;
         std::string recoveryError;
-        if (!recoverPendingImpl(recovered, recoveryError)) {
+        if (!recoverPendingImpl(detail::ApexRecoveryMode::OwnSession, rollback,
+                                recoveryError)) {
             error = activationError + "; automatic rollback also failed: " + recoveryError;
         } else {
             error = activationError;
@@ -1563,8 +1875,15 @@ bool TemporaryPhysicalControllerIsolation::confirmApexProfileRestored(
 
 bool TemporaryPhysicalControllerIsolation::restore(std::string& error) noexcept {
     if (!impl_ || (!impl_->active && !recoveryMarkerExists())) return true;
-    bool recovered = false;
-    if (!recoverPending(recovered, error)) return false;
+    try {
+        ControllerRecoveryReport report;
+        if (!recoverPendingImpl(detail::ApexRecoveryMode::OwnSession, report, error)) {
+            return false;
+        }
+    } catch (...) {
+        error = "Unexpected failure while restoring physical controller visibility.";
+        return false;
+    }
     impl_->active = false;
     impl_->profileRecoveryArmed = false;
     return true;
@@ -1579,12 +1898,54 @@ bool TemporaryPhysicalControllerIsolation::recoveredStaleIsolation() const noexc
 }
 
 bool TemporaryPhysicalControllerIsolation::recoverPending(
-    bool& recovered, std::string& error) noexcept {
+    ControllerRecoveryReport& report, std::string& error) noexcept {
     try {
-        return recoverPendingImpl(recovered, error);
+        return recoverPendingImpl(detail::ApexRecoveryMode::StaleSession, report, error);
     } catch (...) {
-        recovered = false;
+        report.recovered = false;
+        report.visibilityRestored = false;
         error = "Unexpected failure while restoring physical controller visibility.";
+        return false;
+    }
+}
+
+bool TemporaryPhysicalControllerIsolation::applyDeferredApexRestore(
+    flydigi::Apex5Device& device, std::string& notice, std::string& error) noexcept {
+    try {
+        const auto deferred = loadDeferredApexRestore(notice);
+        if (!deferred ||
+            !detail::deferredApexRestoreBlocksSession(*deferred, device.info())) {
+            return true;
+        }
+        if (!device.identity() || !device.identity()->isApex5()) {
+            error = "The controller matching the deferred Apex 5 settings is not a "
+                    "verified Apex 5.";
+            return false;
+        }
+        std::string restoreError;
+        bool profileRestored = !deferred->profilePending;
+        for (int attempt = 1; !profileRestored && attempt <= kRestoreAttempts; ++attempt) {
+            profileRestored =
+                applyApexProfile(device, deferred->profileSlot, attempt, restoreError);
+        }
+        bool inputTransportRestored = !deferred->inputTransportPending;
+        for (int attempt = 1;
+             profileRestored && !inputTransportRestored && attempt <= kRestoreAttempts;
+             ++attempt) {
+            inputTransportRestored = applyApexInputTransport(
+                device, deferred->controllerData, deferred->rawData, attempt,
+                restoreError);
+        }
+        if (settleDeferredApexRestore(*deferred, profileRestored,
+                                      profileRestored && inputTransportRestored,
+                                      notice)) {
+            return true;
+        }
+        error = "The original Apex 5 settings saved by an earlier session could not "
+                "be restored on this controller: " + restoreError;
+        return false;
+    } catch (...) {
+        error = "Unexpected failure while restoring the deferred Apex 5 settings.";
         return false;
     }
 }
@@ -1633,8 +1994,8 @@ int TemporaryPhysicalControllerIsolation::watchAndRecover(
         return 1;
     }
 
-    bool recovered = false;
-    return recoverPending(recovered, error) ? 0 : 2;
+    ControllerRecoveryReport report;
+    return recoverPending(report, error) ? 0 : 2;
 }
 
 namespace detail {
@@ -1686,6 +2047,77 @@ bool matchesApexProfileRecoveryDevice(
     }
     return !originalContainerId.empty() && !candidate.containerId.empty() &&
            equalsCaseInsensitive(candidate.containerId, originalContainerId);
+}
+
+ApexRestoreTarget locateApexRestoreTarget(
+    const ApexSettingsRestore& settings,
+    const std::vector<HidDeviceInfo>& candidates,
+    bool enumerationFailed) noexcept {
+    const bool present = std::any_of(
+        candidates.begin(), candidates.end(),
+        [&settings](const HidDeviceInfo& candidate) {
+            return matchesApexRestoreTarget(settings, candidate);
+        });
+    if (present) return ApexRestoreTarget::Present;
+    return enumerationFailed ? ApexRestoreTarget::Unknown : ApexRestoreTarget::Absent;
+}
+
+bool defersApexRestore(ApexRecoveryMode mode, ApexRestoreOutcome outcome) noexcept {
+    if (outcome == ApexRestoreOutcome::Restored || mode == ApexRecoveryMode::OwnSession) {
+        return false;
+    }
+    if (mode == ApexRecoveryMode::SessionActivation) return true;
+    return outcome == ApexRestoreOutcome::Absent ||
+           outcome == ApexRestoreOutcome::Unresponsive;
+}
+
+std::optional<ApexSettingsRestore> remainingDeferredApexRestore(
+    const ApexSettingsRestore& deferred,
+    bool profileRestored,
+    bool inputTransportRestored) {
+    auto remaining = deferred;
+    if (profileRestored) remaining.profilePending = false;
+    if (inputTransportRestored) remaining.inputTransportPending = false;
+    if (!remaining.profilePending && !remaining.inputTransportPending) return std::nullopt;
+    return remaining;
+}
+
+bool recoveryMarkerUnchanged(std::optional<std::uint32_t> currentOwnerProcessId,
+                             std::uint32_t expectedOwnerProcessId) noexcept {
+    return currentOwnerProcessId.has_value() &&
+           *currentOwnerProcessId == expectedOwnerProcessId;
+}
+
+bool mergeDeferredApexRestore(
+    std::optional<ApexSettingsRestore>& deferred,
+    const ApexSettingsRestore& pending) {
+    if (!deferred) {
+        deferred = pending;
+        return true;
+    }
+    HidDeviceInfo pendingInterface{};
+    pendingInterface.path = pending.vendorPath;
+    pendingInterface.containerId = pending.containerId;
+    pendingInterface.vendorId = pending.vendorId;
+    pendingInterface.productId = pending.productId;
+    pendingInterface.usagePage = pending.usagePage;
+    if (!matchesApexRestoreTarget(*deferred, pendingInterface)) return false;
+    if (!deferred->profilePending && pending.profilePending) {
+        deferred->profilePending = true;
+        deferred->profileSlot = pending.profileSlot;
+    }
+    if (!deferred->inputTransportPending && pending.inputTransportPending) {
+        deferred->inputTransportPending = true;
+        deferred->controllerData = pending.controllerData;
+        deferred->rawData = pending.rawData;
+    }
+    return true;
+}
+
+bool deferredApexRestoreBlocksSession(
+    const ApexSettingsRestore& deferred,
+    const HidDeviceInfo& sessionInterface) noexcept {
+    return matchesApexRestoreTarget(deferred, sessionInterface);
 }
 
 namespace {

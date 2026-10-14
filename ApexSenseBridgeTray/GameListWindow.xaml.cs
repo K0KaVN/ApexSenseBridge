@@ -118,8 +118,13 @@ namespace ApexSenseBridgeTray
             UpdateSettingsView();
 
             controllerDetection = new ControllerDetectionService();
-            controllerDetection.StatusChanged += status => Dispatcher.BeginInvoke(
-                new Action(() => UpdateControllerStatus(status)));
+            bool initialControllerStatus = true;
+            controllerDetection.StatusChanged += status =>
+            {
+                if (!initialControllerStatus) monitorService?.ReportControllerStatus(status);
+                initialControllerStatus = false;
+                Dispatcher.BeginInvoke(new Action(() => UpdateControllerStatus(status)));
+            };
             UpdateControllerStatus("disconnected");
             statusTimer.Tick += (s, e) => { UpdateDashboardStatus(); UpdateClock(); };
             UpdateClock();
@@ -1332,7 +1337,8 @@ namespace ApexSenseBridgeTray
                     }
                 }
                 if (BtnRetryStart != null)
-                    BtnRetryStart.Visibility = !isActive && external == null && sessionManager != null && sessionManager.CanRetryHidHideBusy
+                    BtnRetryStart.Visibility = !isActive && external == null && sessionManager != null &&
+                        (sessionManager.CanRetryHidHideBusy || (monitorService != null && monitorService.HasPausedAutomaticStart))
                         ? Visibility.Visible : Visibility.Collapsed;
                 // Idle home stays clean; chips appear for a live, starting, failed or interrupted session.
                 bool showDetails = anyActive || phase == "Starting" || phase == "Failed" || readable != null ||
@@ -1430,6 +1436,11 @@ namespace ApexSenseBridgeTray
             BtnRetryStart.IsEnabled = false;
             try
             {
+                if (monitorService != null && monitorService.HasPausedAutomaticStart)
+                {
+                    monitorService.RetryPausedStarts();
+                    return;
+                }
                 string error = null;
                 await Task.Run(() => sessionManager.RetryLastStart(settings, out error));
             }
