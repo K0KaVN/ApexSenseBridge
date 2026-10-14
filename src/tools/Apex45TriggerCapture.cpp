@@ -112,6 +112,25 @@ constexpr std::array<Phase, 3> vibrationPhases{{
     {"vibration_start77_amplitude60_frequency20", {0x26, 0xF0, 0x03, 0, 0xB0, 0x6D, 0x1B, 0, 0, 20}}
 }};
 
+constexpr std::array<Phase, 7> legacyPhases{{
+    {"normal", {5}},
+    {"legacy11_start38_strength10", {0x11, 38, 10}},
+    {"legacy11_start38_strength5", {0x11, 38, 5}},
+    {"legacy11_start38_strength1", {0x11, 38, 1}},
+    {"legacy12_start38_end134_strength10", {0x12, 38, 134, 10}},
+    {"legacy12_start38_end77_strength5", {0x12, 38, 77, 5}},
+    {"legacy02_start38_end134_strength40", {0x02, 38, 134, 40}}
+}};
+
+constexpr std::array<Phase, 6> bowPhases{{
+    {"normal", {5}},
+    {"bow_emulated_draw4_race_then_break", {0x22, 0x44, 0x00, 0x0B}},
+    {"bow_start2_end6_draw4_snap2", {0x22, 0x44, 0x00, 0x0B}},
+    {"bow_start2_end6_draw4_snap8", {0x22, 0x44, 0x00, 0x3B}},
+    {"bow_start2_end6_draw8_snap2", {0x22, 0x44, 0x00, 0x0F}},
+    {"bow_start2_end6_draw8_snap8", {0x22, 0x44, 0x00, 0x3F}}
+}};
+
 constexpr std::array<Phase, 8> positionPhases{{
     {"feedback_start0_force8", {0x21, 0xFF, 0x03}},
     {"feedback_start38_force8", {0x21, 0xFC, 0x03}},
@@ -148,10 +167,13 @@ struct PhaseRecord {
 int run(int argc, char** argv) {
     std::filesystem::path outputPath;
     unsigned seconds = 6;
+    unsigned bowSwitchAxis = 130;
     bool activate = false;
     bool plan = false;
     bool vibrationCheck = false;
     bool positionCheck = false;
+    bool legacyCheck = false;
+    bool bowCheck = false;
     bool markPositions = false;
     bool waitReady = false;
     bool markerTrial = false;
@@ -163,6 +185,13 @@ int run(int argc, char** argv) {
         else if (option == "--plan") plan = true;
         else if (option == "--vibration-check") vibrationCheck = true;
         else if (option == "--position-check") positionCheck = true;
+        else if (option == "--legacy-check") legacyCheck = true;
+        else if (option == "--bow-check") bowCheck = true;
+        else if (option == "--bow-switch-axis" && index + 1 < argc) {
+            const auto parsed = std::stoul(argv[++index]);
+            if (parsed < 40 || parsed > 250) throw std::runtime_error("--bow-switch-axis must be 40..250");
+            bowSwitchAxis = static_cast<unsigned>(parsed);
+        }
         else if (option == "--mark-positions") markPositions = true;
         else if (option == "--wait-ready") waitReady = true;
         else if (option == "--marker-trial") { markerTrial = true; markPositions = true; waitReady = true; }
@@ -175,18 +204,24 @@ int run(int argc, char** argv) {
             const std::string value = argv[++index];
             std::size_t consumed = 0;
             const auto parsed = std::stoul(value, &consumed);
-            if (consumed != value.size() || parsed < 1 || parsed > 10) {
-                throw std::runtime_error("--phase-seconds must be 1..10");
+            if (consumed != value.size() || parsed < 1 || parsed > 45) {
+                throw std::runtime_error("--phase-seconds must be 1..45");
             }
             seconds = static_cast<unsigned>(parsed);
         } else {
             std::cerr << "Usage: Apex45TriggerCapture --output FILE [--activate] "
-                         "[--vibration-check | --position-check] [--single-effect PHASE_NAME] "
-                         "[--mark-positions] [--wait-ready] [--marker-trial | --snap-trial] [--phase-seconds 1..10] [--plan]\n";
+                         "[--vibration-check | --position-check | --legacy-check | --bow-check] [--bow-switch-axis 40..250] [--single-effect PHASE_NAME] "
+                         "[--mark-positions] [--wait-ready] [--marker-trial | --snap-trial] [--phase-seconds 1..10, or 1..45 with --legacy-check or --bow-check] [--plan]\n";
             return 1;
         }
     }
-    if (positionCheck && vibrationCheck) throw std::runtime_error("Choose only one check family");
+    if (static_cast<int>(positionCheck) + static_cast<int>(vibrationCheck) + static_cast<int>(legacyCheck) +
+        static_cast<int>(bowCheck) > 1) {
+        throw std::runtime_error("Choose only one check family");
+    }
+    const bool longCheck = legacyCheck || bowCheck;
+    if (seconds > 10 && !longCheck) throw std::runtime_error("--phase-seconds above 10 requires --legacy-check or --bow-check");
+    if (longCheck && (markPositions || markerTrial)) throw std::runtime_error("--legacy-check and --bow-check do not use position markers");
     if (markerTrial && !positionCheck) throw std::runtime_error("--marker-trial requires --position-check at fixed force 8");
     if (!plan && (positionCheck || markPositions || waitReady) && (!activate || singleEffect.empty())) {
         throw std::runtime_error("Position checks, markers and readiness require --activate and --single-effect");
@@ -194,6 +229,8 @@ int run(int argc, char** argv) {
     std::span<const Phase> selectedPhases = vibrationCheck
         ? std::span<const Phase>(vibrationPhases) : std::span<const Phase>(phases);
     if (positionCheck) selectedPhases = positionPhases;
+    if (legacyCheck) selectedPhases = legacyPhases;
+    if (bowCheck) selectedPhases = bowPhases;
     std::array<Phase, 3> isolatedPhases{};
     if (!singleEffect.empty()) {
         const auto found = std::find_if(selectedPhases.begin(), selectedPhases.end(),
@@ -320,11 +357,26 @@ int run(int argc, char** argv) {
         if (activate && !device.setTriggerRaw(*command, error)) { success = false; break; }
         const bool activeTrial = markerTrial && command->mode != asb::TriggerMode::Normal;
         asb::tools::MarkerTrialProgress trialProgress(command->mode == asb::TriggerMode::SniperBreak);
-        const auto deadline = Clock::now() + std::chrono::seconds(activeTrial ? 30U : seconds);
+        const bool emulatedBow = bowCheck && activate && phase.name == "bow_emulated_draw4_race_then_break";
+        const asb::ForceTriggerCommand breakCommand{asb::TriggerSide::Right, asb::TriggerMode::SniperBreak, {115, 40, 32, 0, 0}};
+        bool emulatedBroken = false;
+        const unsigned phaseSeconds = (legacyCheck || bowCheck) && command->mode == asb::TriggerMode::Normal
+            ? (std::min)(seconds, 6U) : seconds;
+        const auto deadline = Clock::now() + std::chrono::seconds(activeTrial ? 30U : phaseSeconds);
         while (Clock::now() < deadline && !stopRequested.load() && !owner->stopRequested()) {
             if (!input->poll(state, error)) { success = false; break; }
             const auto sampledAt = elapsedUs(started);
             samples.push_back({sampledAt, phaseIndex, state.l2, state.r2, state.buttons});
+            if (emulatedBow) {
+                constexpr unsigned kRearmAxis = 40;
+                if (!emulatedBroken && state.r2 >= bowSwitchAxis) {
+                    if (!device.setTriggerRaw(breakCommand, error)) { success = false; break; }
+                    emulatedBroken = true;
+                } else if (emulatedBroken && state.r2 <= kRearmAxis) {
+                    if (!device.setTriggerRaw(*command, error)) { success = false; break; }
+                    emulatedBroken = false;
+                }
+            }
             const auto edges = markerEdges.update(state.buttons, activate && command->mode != asb::TriggerMode::Normal);
             if (markPositions && edges.onset) positionMarkers.push_back({sampledAt, phaseIndex, state.r2, snapTrial ? "block" : "onset", "A"});
             if (markPositions && edges.release) positionMarkers.push_back({sampledAt, phaseIndex, state.r2, snapTrial ? "after_break" : "release", "B"});
