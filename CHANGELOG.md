@@ -118,6 +118,15 @@
   input changes, trigger source switches, LT/RT oscillations, the longest
   vendor stream gap and button bounces (`input_*`).
 
+### Automatic activation for manual-fix games ([#36](https://github.com/ReynArts/ApexSenseBridge/issues/36), [#46](https://github.com/ReynArts/ApexSenseBridge/pull/46))
+
+- A game marked "Manual fix" can be allowed to activate automatically once the
+  fix is applied, from its detail pane (contributed by @tenmo2003). Exclusions
+  still take precedence.
+- The allowance can be toggled with A, Enter or Space on a manual-fix game;
+  the APEX profile stays on Left/Right. The toggle is disabled while the game
+  is excluded.
+
 ## 1.0.1
 
 ### Adaptive triggers on APEX 4/5 ([#35](https://github.com/ReynArts/ApexSenseBridge/issues/35), [#38](https://github.com/ReynArts/ApexSenseBridge/issues/38), [#22](https://github.com/ReynArts/ApexSenseBridge/issues/22), [#23](https://github.com/ReynArts/ApexSenseBridge/issues/23))
