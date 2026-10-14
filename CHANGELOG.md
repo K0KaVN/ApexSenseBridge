@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 1.0.2
+
+### Automatic activation for manual fixes ([#36](https://github.com/ReynArts/ApexSenseBridge/issues/36), [#46](https://github.com/ReynArts/ApexSenseBridge/pull/46))
+
+- Games with a compatible manual fix can now be activated automatically. The
+  Tray shows the applied fix with a green badge (contributed by @tenmo2003).
+  Exclusions still take precedence.
+- The allowance can be toggled with A, Enter or Space on a manual-fix game;
+  the APEX profile stays on Left/Right. The toggle is disabled while the game
+  is excluded.
+
 ### Pending APEX 5 restore no longer blocks sessions ([#44](https://github.com/ReynArts/ApexSenseBridge/issues/44), [#45](https://github.com/ReynArts/ApexSenseBridge/issues/45))
 
 - HidHide visibility is always restored first. When the APEX 5 whose profile

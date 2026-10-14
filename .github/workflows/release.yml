@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -25,16 +25,16 @@ jobs:
           .\scripts\verify-version-consistency.ps1
 
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       - name: Setup Inno Setup
         run: |
           choco install innosetup --no-progress -y
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.26.5'
           cache: false
 
       - name: Build Patched VIIPER
@@ -110,7 +110,7 @@ jobs:
           Write-Host "Extracted release notes ($($notes.Length) characters) to dist/release-notes.md"
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           body_path: dist/release-notes.md
@@ -120,6 +120,4 @@ jobs:
             dist/*.pext
           generate_release_notes: false
           draft: false
-          # Rebuild the corrected 1.0.1 package as a pre-release; subsequent
-          # release tags keep the usual semantic-version prerelease behavior.
-          prerelease: ${{ github.ref_name == 'v1.0.1' || contains(github.ref_name, '-') }}
+          prerelease: ${{ github.ref_name == 'v1.0.2' || contains(github.ref_name, '-') }}
