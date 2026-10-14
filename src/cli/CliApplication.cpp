@@ -103,7 +103,7 @@ void printUsage() {
 }
 
 int run(int argc, char** argv) {
-    const ScopedLineFlushedOutput lineFlushedStdout(std::cout);
+    configureEngineOutput(std::cout);
     installConsoleHandler();
 
     if (argc < 2) {

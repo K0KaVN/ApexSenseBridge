@@ -163,33 +163,24 @@ int main() {
     assert(retired.vendorMaximumGapMs == 90);
 
     CountingBuffer flushed;
-    asb::cli::LineFlushingStreamBuffer lines(&flushed);
-    std::ostream lineOutput(&lines);
-    lineOutput << "partial";
-    assert(flushed.syncs == 0 && flushed.str() == "partial");
-    lineOutput << " line\n";
-    assert(flushed.syncs == 1);
-    lineOutput << 'x';
-    assert(flushed.syncs == 1);
-    lineOutput << '\n';
+    std::ostream engineOutput(&flushed);
+    assert((engineOutput.flags() & std::ios_base::unitbuf) == 0);
+    asb::cli::configureEngineOutput(engineOutput);
+    assert((engineOutput.flags() & std::ios_base::unitbuf) != 0);
+    assert(engineOutput.rdbuf() == &flushed);
+    engineOutput << "partial";
+    assert(flushed.syncs == 1 && flushed.str() == "partial");
+    engineOutput << " line\n";
     assert(flushed.syncs == 2);
-    lineOutput << 42;
-    assert(flushed.syncs == 2);
-    lineOutput << "a\nb";
+    engineOutput << 42;
     assert(flushed.syncs == 3);
-    lineOutput.flush();
-    assert(flushed.syncs == 4);
-    assert(flushed.str() == "partial line\nx\n42a\nb");
+    assert(flushed.str() == "partial line\n42");
 
-    std::stringbuf scopedStorage;
-    std::ostream scopedOutput(&scopedStorage);
-    {
-        const asb::cli::ScopedLineFlushedOutput scoped(scopedOutput);
-        assert(scopedOutput.rdbuf() != &scopedStorage);
-        scopedOutput << "scoped\n";
-    }
-    assert(scopedOutput.rdbuf() == &scopedStorage);
-    assert(scopedStorage.str() == "scoped\n");
+    std::stringstream textOutput;
+    asb::cli::configureEngineOutput(textOutput);
+    assert((textOutput.flags() & std::ios_base::unitbuf) != 0);
+    textOutput << "engine " << 7 << '\n';
+    assert(textOutput.str() == "engine 7\n");
 
     using StartupClock = asb::cli::StartupPhaseTracker::Clock;
     const auto origin = StartupClock::time_point{} + std::chrono::hours(1);

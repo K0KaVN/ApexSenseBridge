@@ -172,12 +172,7 @@ Apex5Device::~Apex5Device() {
 }
 
 Apex5Device::Apex5Device(Apex5Device&& other) noexcept {
-    other.stopAsyncWrites();
-    transport_ = std::move(other.transport_);
-    identity_ = std::move(other.identity_);
-    writeMutex_ = std::move(other.writeMutex_);
-    if (!writeMutex_) writeMutex_ = std::make_unique<std::recursive_mutex>();
-    lastVendorWriteAt_ = other.lastVendorWriteAt_;
+    *this = std::move(other);
 }
 
 Apex5Device& Apex5Device::operator=(Apex5Device&& other) noexcept {
@@ -186,9 +181,17 @@ Apex5Device& Apex5Device::operator=(Apex5Device&& other) noexcept {
     other.stopAsyncWrites();
     transport_ = std::move(other.transport_);
     identity_ = std::move(other.identity_);
+    identityUnanswered_ = other.identityUnanswered_;
     writeMutex_ = std::move(other.writeMutex_);
     if (!writeMutex_) writeMutex_ = std::make_unique<std::recursive_mutex>();
     lastVendorWriteAt_ = other.lastVendorWriteAt_;
+    lastTriggerWriteAt_ = other.lastTriggerWriteAt_;
+    asyncPolicy_ = other.asyncPolicy_;
+    {
+        std::scoped_lock statsLock(feedbackStatsMutex_, other.feedbackStatsMutex_);
+        triggerWriteStats_ = other.triggerWriteStats_;
+        rumbleWriteStats_ = other.rumbleWriteStats_;
+    }
     return *this;
 }
 
@@ -447,6 +450,21 @@ bool Apex5Device::writeSpacedOutputReport(
     const bool ok = transport_->writeOutputReport(report, error);
     lastVendorWriteAt_ = std::chrono::steady_clock::now();
     return ok;
+}
+
+void Apex5Device::waitForAsyncWriteSpacing() const {
+    if (usesApex4Protocol() || !asyncWritesRunning_.load(std::memory_order_acquire) ||
+        lastVendorWriteAt_.time_since_epoch().count() == 0) {
+        return;
+    }
+    const auto since = std::chrono::steady_clock::now() - lastVendorWriteAt_;
+    if (since < asyncPolicy_.spacing) {
+        std::this_thread::sleep_for(asyncPolicy_.spacing - since);
+    }
+}
+
+void Apex5Device::recordVendorWrite() noexcept {
+    if (!usesApex4Protocol()) lastVendorWriteAt_ = std::chrono::steady_clock::now();
 }
 
 bool Apex5Device::writeFeedbackReport(
@@ -723,9 +741,11 @@ bool Apex5Device::readRgbConfig(
         }
     }
 
-    if (!transport_->writeOutputReport(buildReadRgbConfig(slot, kRgbPacketSize), error)) {
-        return false;
-    }
+    waitForAsyncWriteSpacing();
+    const bool requested = transport_->writeOutputReport(
+        buildReadRgbConfig(slot, kRgbPacketSize), error);
+    recordVendorWrite();
+    if (!requested) return false;
 
     std::size_t packetsReceived = 0;
     std::vector<bool> received(kRgbPacketCount, false);
@@ -807,22 +827,19 @@ bool Apex5Device::writeRgbConfigRange(
     }
 
     const auto lock = acquireWriteLock();
+    waitForAsyncWriteSpacing();
     const auto startReport = buildWriteRgbStart(
         slot, firstPacket, packetCount, kRgbPacketSize);
-    if (!exchangeCommand(*transport_, startReport, kCmdWriteRgbStart, error)) {
-        return false;
-    }
-
-    for (std::size_t packet = firstPacket; packet < endPacket; ++packet) {
+    bool ok = exchangeCommand(*transport_, startReport, kCmdWriteRgbStart, error).has_value();
+    for (std::size_t packet = firstPacket; ok && packet < endPacket; ++packet) {
         const auto packIndex = static_cast<std::uint8_t>(packet - firstPacket);
         const auto offset = packet * kRgbPacketSize;
         const auto chunk = std::span<const std::uint8_t>(payload.data() + offset, kRgbPacketSize);
         const auto packReport = buildWriteRgbPack(packIndex, chunk);
-        if (!exchangeCommand(*transport_, packReport, kCmdWriteRgbPack, error)) {
-            return false;
-        }
+        ok = exchangeCommand(*transport_, packReport, kCmdWriteRgbPack, error).has_value();
     }
-    return true;
+    recordVendorWrite();
+    return ok;
 }
 
 bool Apex5Device::requestBatteryRefresh(std::string& error) {
@@ -835,7 +852,10 @@ bool Apex5Device::requestBatteryRefresh(std::string& error) {
         return false;
     }
     const auto lock = acquireWriteLock();
-    return transport_->writeOutputReport(Apex5Identity::buildRequest(), error);
+    waitForAsyncWriteSpacing();
+    const bool ok = transport_->writeOutputReport(Apex5Identity::buildRequest(), error);
+    recordVendorWrite();
+    return ok;
 }
 
 std::optional<AsyncWritePolicy> Apex5Device::asyncWritePolicy() const noexcept {
@@ -850,7 +870,7 @@ std::optional<AsyncWritePolicy> Apex5Device::asyncWritePolicy() const noexcept {
 }
 
 bool Apex5Device::asyncWritesRunning() const noexcept {
-    return writer_.joinable();
+    return asyncWritesRunning_.load(std::memory_order_acquire);
 }
 
 FeedbackWriteStats Apex5Device::triggerWriteStats() const noexcept {
@@ -883,11 +903,13 @@ bool Apex5Device::startAsyncWrites(std::string& error) {
         asyncStats_ = {};
     }
     writer_ = std::thread([this] { writerLoop(); });
+    asyncWritesRunning_.store(true, std::memory_order_release);
     return true;
 }
 
 void Apex5Device::stopAsyncWrites() noexcept {
     if (!writer_.joinable()) return;
+    asyncWritesRunning_.store(false, std::memory_order_release);
     {
         std::lock_guard lock(queueMutex_);
         writerStopping_ = true;
@@ -898,7 +920,9 @@ void Apex5Device::stopAsyncWrites() noexcept {
 
 bool Apex5Device::queueTriggerRaw(const ForceTriggerCommand& command,
                                   std::string& error) {
-    if (!writer_.joinable()) return setTriggerRaw(command, error);
+    if (!asyncWritesRunning_.load(std::memory_order_acquire)) {
+        return setTriggerRaw(command, error);
+    }
     {
         std::lock_guard lock(queueMutex_);
         auto& pending = command.side == TriggerSide::Left ? pendingLeftTrigger_
@@ -918,7 +942,7 @@ bool Apex5Device::queueTriggerRaw(const ForceTriggerCommand& command,
 bool Apex5Device::queueRumble(std::uint8_t lowFrequencyMotor,
                               std::uint8_t highFrequencyMotor,
                               std::string& error) {
-    if (!writer_.joinable()) {
+    if (!asyncWritesRunning_.load(std::memory_order_acquire)) {
         return setRumble(lowFrequencyMotor, highFrequencyMotor, error);
     }
     {
@@ -986,7 +1010,7 @@ void Apex5Device::writerLoop() {
             constexpr auto kRumbleMaximumWait = std::chrono::milliseconds(100);
             const auto now = std::chrono::steady_clock::now();
             const bool rumbleFirst = !(pendingLeftTrigger_ || pendingRightTrigger_) ||
-                now - pendingAt_[2] > kRumbleMaximumWait;
+                now - rumblePendingSince_ > kRumbleMaximumWait;
             const auto holdoffEnds = (std::min)(
                 lastTriggerWriteAt_ + asyncPolicy_.rumbleHoldoffAfterTrigger,
                 rumblePendingSince_ + kRumbleMaximumWait);

@@ -141,6 +141,8 @@ private:
     [[nodiscard]] bool writeFeedbackReport(std::span<const std::uint8_t> report,
                                            bool trigger,
                                            std::string& error);
+    void waitForAsyncWriteSpacing() const;
+    void recordVendorWrite() noexcept;
     void writerLoop();
 
     TransportPtr transport_{};
@@ -151,6 +153,7 @@ private:
     std::chrono::steady_clock::time_point lastTriggerWriteAt_{};
     AsyncWritePolicy asyncPolicy_{};
     std::thread writer_{};
+    std::atomic<bool> asyncWritesRunning_{false};
     std::mutex queueMutex_{};
     std::condition_variable queueSignal_{};
     std::optional<ForceTriggerCommand> pendingLeftTrigger_{};

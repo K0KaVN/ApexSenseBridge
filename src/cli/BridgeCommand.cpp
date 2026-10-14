@@ -137,6 +137,7 @@ int commandBridgeTriggers(int argc, char** argv) {
         },
         stopRequested);
     if (!device) {
+        if (stopRequested()) return cancelStartup();
         const std::string message = "APEX identity check failed: " + error;
         std::cerr << message << '\n';
         return failSession(3, message);
@@ -517,6 +518,7 @@ int commandBridgeTriggers(int argc, char** argv) {
                 : std::nullopt,
             error, stopRequested)) {
         virtualDualSense->close();
+        if (stopRequested()) return cancelStartup();
         std::cerr << "Temporary APEX isolation failed: " << error << '\n';
         return failSession(11, "Temporary APEX isolation failed: " + error);
     }
@@ -765,8 +767,6 @@ int commandBridgeTriggers(int argc, char** argv) {
                      "motion data will be merged if the stream resumes.\n";
     }
 
-    // Start only after every ordered startup/profile write. On Apex 4 this
-    // moves paced feedback off the virtual-controller callback.
     startup.enter("feedback-start");
     if (!device->startAsyncWrites(error)) {
         virtualDualSense->close();

@@ -12,7 +12,6 @@
 #include <mutex>
 #include <optional>
 #include <ostream>
-#include <streambuf>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -111,37 +110,7 @@ private:
     std::uint64_t presses_ = 0;
 };
 
-class LineFlushingStreamBuffer final : public std::streambuf {
-public:
-    explicit LineFlushingStreamBuffer(std::streambuf* target) noexcept : target_(target) {}
-    [[nodiscard]] std::streambuf* target() const noexcept { return target_; }
-
-protected:
-    int_type overflow(int_type character) override;
-    std::streamsize xsputn(const char_type* data, std::streamsize count) override;
-    int sync() override;
-
-private:
-    std::streambuf* target_;
-};
-
-class ScopedLineFlushedOutput {
-public:
-    explicit ScopedLineFlushedOutput(std::ostream& stream)
-        : stream_(stream), buffer_(stream.rdbuf()) {
-        stream_.rdbuf(&buffer_);
-    }
-    ~ScopedLineFlushedOutput() {
-        stream_.flush();
-        stream_.rdbuf(buffer_.target());
-    }
-    ScopedLineFlushedOutput(const ScopedLineFlushedOutput&) = delete;
-    ScopedLineFlushedOutput& operator=(const ScopedLineFlushedOutput&) = delete;
-
-private:
-    std::ostream& stream_;
-    LineFlushingStreamBuffer buffer_;
-};
+void configureEngineOutput(std::ostream& stream);
 
 class StartupPhaseTracker {
 public:

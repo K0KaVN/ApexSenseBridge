@@ -130,29 +130,8 @@ bool waitForPhysicalControlsReleased(
     return false;
 }
 
-LineFlushingStreamBuffer::int_type LineFlushingStreamBuffer::overflow(int_type character) {
-    if (traits_type::eq_int_type(character, traits_type::eof())) {
-        return sync() == 0 ? traits_type::not_eof(character) : traits_type::eof();
-    }
-    const auto value = traits_type::to_char_type(character);
-    if (traits_type::eq_int_type(target_->sputc(value), traits_type::eof())) {
-        return traits_type::eof();
-    }
-    if (value == '\n' && target_->pubsync() != 0) return traits_type::eof();
-    return character;
-}
-
-std::streamsize LineFlushingStreamBuffer::xsputn(const char_type* data, std::streamsize count) {
-    const auto written = target_->sputn(data, count);
-    if (written > 0 &&
-        traits_type::find(data, static_cast<std::size_t>(written), '\n') != nullptr) {
-        (void)target_->pubsync();
-    }
-    return written;
-}
-
-int LineFlushingStreamBuffer::sync() {
-    return target_->pubsync();
+void configureEngineOutput(std::ostream& stream) {
+    stream << std::unitbuf;
 }
 
 namespace {
