@@ -761,14 +761,7 @@ namespace ApexSenseBridgeTray
                 }
                 else if (currentTabIndex == 1)
                 {
-                    var game = SelectedGame;
-                    if (game != null)
-                    {
-                        game.CycleApexProfile(-1);
-                        settings.SetApexProfileSlot(game.Normalized, game.SelectedApexProfileSlot);
-                        settings.Save();
-                        UpdateDetailPane();
-                    }
+                    CycleSelectedApexProfile(-1);
                 }
                 else if (currentTabIndex == 2)
                 {
@@ -807,14 +800,7 @@ namespace ApexSenseBridgeTray
                 }
                 else if (currentTabIndex == 1)
                 {
-                    var game = SelectedGame;
-                    if (game != null)
-                    {
-                        game.CycleApexProfile(1);
-                        settings.SetApexProfileSlot(game.Normalized, game.SelectedApexProfileSlot);
-                        settings.Save();
-                        UpdateDetailPane();
-                    }
+                    CycleSelectedApexProfile(1);
                 }
                 else if (currentTabIndex == 2)
                 {
@@ -1014,14 +1000,7 @@ namespace ApexSenseBridgeTray
             }
             else if (currentTabIndex == 1)
             {
-                var game = SelectedGame;
-                if (game != null)
-                {
-                    game.CycleApexProfile(1);
-                    settings.SetApexProfileSlot(game.Normalized, game.SelectedApexProfileSlot);
-                    settings.Save();
-                    UpdateDetailPane();
-                }
+                CycleSelectedApexProfile(1);
             }
             else if (currentTabIndex == 2)
             {
@@ -1211,6 +1190,7 @@ namespace ApexSenseBridgeTray
             bool isConnected = isApex4 || isApex5 || isApex6;
             sessionManager?.UpdateRecoveryController(isConnected);
             UpdateSettingsView();
+            UpdateApexProfileSelector();
 
             string fullLabel;
             string shortLabel;
@@ -1831,6 +1811,7 @@ namespace ApexSenseBridgeTray
             if (BadgeDetailManualFix != null) BadgeDetailManualFix.Visibility = game.ManualFixVisibility;
 
             if (TxtDetailApexProfile != null) TxtDetailApexProfile.Text = game.SelectedApexProfileDisplay;
+            UpdateApexProfileSelector();
             UpdateExecutableChoices();
 
             if (TxtDetailExcludeAction != null)
@@ -1903,26 +1884,42 @@ namespace ApexSenseBridgeTray
 
         private void OnCycleProfileLeftClick(object sender, RoutedEventArgs e)
         {
-            var game = SelectedGame;
-            if (game != null)
-            {
-                game.CycleApexProfile(-1);
-                settings.SetApexProfileSlot(game.Normalized, game.SelectedApexProfileSlot);
-                settings.Save();
-                UpdateDetailPane();
-            }
+            CycleSelectedApexProfile(-1);
         }
 
         private void OnCycleProfileRightClick(object sender, RoutedEventArgs e)
         {
+            CycleSelectedApexProfile(1);
+        }
+
+        private bool IsApexProfileLocked()
+        {
+            return ControllerDetectionService.LocksOnboardProfile(lastControllerStatus);
+        }
+
+        private void CycleSelectedApexProfile(int delta)
+        {
             var game = SelectedGame;
-            if (game != null)
+            if (game == null || IsApexProfileLocked()) return;
+            game.CycleApexProfile(delta);
+            settings.SetApexProfileSlot(game.Normalized, game.SelectedApexProfileSlot);
+            settings.Save();
+            UpdateDetailPane();
+        }
+
+        private void UpdateApexProfileSelector()
+        {
+            bool locked = IsApexProfileLocked();
+            if (BtnProfileLeft != null) BtnProfileLeft.IsEnabled = !locked;
+            if (BtnProfileRight != null) BtnProfileRight.IsEnabled = !locked;
+            if (PnlApexProfile != null)
             {
-                game.CycleApexProfile(1);
-                settings.SetApexProfileSlot(game.Normalized, game.SelectedApexProfileSlot);
-                settings.Save();
-                UpdateDetailPane();
+                PnlApexProfile.Opacity = locked ? 0.55 : 1.0;
+                PnlApexProfile.SetResourceReference(FrameworkElement.ToolTipProperty,
+                    locked ? "Loc_ApexProfileApex5Only" : "Loc_ApexProfileHint");
             }
+            if (TxtApexProfileLocked != null)
+                TxtApexProfileLocked.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void OnDetailToggleExcludeClick(object sender, RoutedEventArgs e)

@@ -18,11 +18,12 @@ $windowType = [ApexSenseBridgeTray.GameListWindow]
 $managerType = [ApexSenseBridgeTray.Services.EngineSessionManager]
 $manager = New-Object ApexSenseBridgeTray.Services.EngineSessionManager
 $settings = New-Object ApexSenseBridgeTray.Models.TraySettings
+$service = New-Object ApexSenseBridgeTray.Services.CloudGameListService
 $window = $null
 function Get-Control([string]$name) { $windowType.GetField($name, $flags).GetValue($window) }
 try {
     $window = New-Object ApexSenseBridgeTray.GameListWindow -ArgumentList @(
-        (New-Object ApexSenseBridgeTray.Services.CloudGameListService), $settings, $null, $manager, $null, $null, "settings")
+        $service, $settings, $null, $manager, $null, $null, "settings")
     # No bridge, no real hotplug polling, no UI shown, no saved user settings.
     $windowType.GetField("controllerDetection", $flags).GetValue($window).Dispose()
     $statusMethod = $windowType.GetMethod("UpdateControllerStatus", $flags)
@@ -63,6 +64,44 @@ try {
         if ((Get-Control "SliderTriggerStrength").Value -ne $expected) { throw "UI did not restore $model calibration" }
         $expectedVibration = if ($model -eq "apex5") { 175 } else { 100 }
         if ((Get-Control "SliderVibrationStrength").Value -ne $expectedVibration) { throw "UI lost the independent gain for $model" }
+        $count++
+    }
+    [string]$catalog = (@{ games = @([ordered]@{ title = "Profile Test"; normalized = "profiletest"; adaptiveTriggers = $true; hapticFeedback = $true }) } | ConvertTo-Json -Depth 4 -Compress)
+    if (-not [ApexSenseBridgeTray.Services.CloudGameListService].GetMethod("ParseAndLoadJson", $flags).Invoke($service, [object[]]@($catalog))) { throw "Catalogue rejected" }
+    $windowType.GetMethod("LoadGames", $flags).Invoke($window, @())
+    $windowType.GetMethod("SetCurrentTab", $flags).Invoke($window, @([int]1))
+    $windowType.GetMethod("SelectGame", $flags).Invoke($window, @([int]0))
+    $game = $windowType.GetProperty("SelectedGame").GetValue($window)
+    if (-not $game) { throw "No certified game is selectable" }
+    $settings.SetApexProfileSlot($game.Normalized, 2)
+    $game.SelectedApexProfileSlot = 2
+    $windowType.GetMethod("UpdateDetailPane", $flags).Invoke($window, @())
+    $lockedText = [ApexSenseBridgeTray.Common.LocalizationManager]::Get("Loc_ApexProfileApex5Only")
+    $hintText = [ApexSenseBridgeTray.Common.LocalizationManager]::Get("Loc_ApexProfileHint")
+    if ($lockedText -eq "Loc_ApexProfileApex5Only" -or $lockedText -eq $hintText) { throw "APEX 5 only hint is not localized" }
+    foreach ($status in @("apex4", "apex6", "unsupported", "apex5", "disconnected", "unavailable", "apex4", "apex5")) {
+        $statusMethod.Invoke($window, @($status))
+        $locked = $status -in @("apex4", "apex6", "unsupported")
+        foreach ($button in @("BtnProfileLeft", "BtnProfileRight")) {
+            if ((Get-Control $button).IsEnabled -eq $locked) { throw "Profile selector $button has the wrong state for $status" }
+        }
+        $hint = Get-Control "TxtApexProfileLocked"
+        if (($hint.Visibility -eq "Visible") -ne $locked) { throw "APEX 5 only hint has the wrong visibility for $status" }
+        if ($locked -and $hint.Text -ne $lockedText) { throw "APEX 5 only hint text is wrong for $status" }
+        $expectedTip = if ($locked) { $lockedText } else { $hintText }
+        if ((Get-Control "PnlApexProfile").ToolTip -ne $expectedTip) { throw "Profile selector tooltip is wrong for $status" }
+        if ((Get-Control "TxtDetailApexProfile").Text -ne "Profile 2") { throw "Saved profile is not shown for $status" }
+        if ($locked) {
+            foreach ($name in @("OnGamepadLeft", "OnGamepadRight", "ActivateCurrentItem")) {
+                $windowType.GetMethod($name, $flags).Invoke($window, @())
+            }
+            foreach ($name in @("OnCycleProfileLeftClick", "OnCycleProfileRightClick")) {
+                $windowType.GetMethod($name, $flags).Invoke($window, @($null, $null))
+            }
+            if ($game.SelectedApexProfileSlot -ne 2 -or $settings.GetApexProfileSlot($game.Normalized) -ne 2) {
+                throw "Locked profile selector changed the saved profile for $status"
+            }
+        }
         $count++
     }
     Write-Output "PASS: $count controller calibration/hot-swap UI scenarios; no user settings written."

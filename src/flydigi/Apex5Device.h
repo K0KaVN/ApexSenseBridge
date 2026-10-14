@@ -57,6 +57,7 @@ public:
 
     bool verifyIdentity(std::string& error,
                         const std::function<bool()>& shouldStop = {});
+    [[nodiscard]] bool identityUnanswered() const noexcept { return identityUnanswered_; }
 
     bool setTrigger(const TriggerEffect& effect, std::string& error);
     bool setTriggerRaw(const ForceTriggerCommand& command, std::string& error);
@@ -126,6 +127,7 @@ private:
 
     TransportPtr transport_{};
     std::optional<Apex5Identity> identity_{};
+    bool identityUnanswered_ = false;
     mutable std::unique_ptr<std::recursive_mutex> writeMutex_{std::make_unique<std::recursive_mutex>()};
     std::chrono::steady_clock::time_point lastVendorWriteAt_{};
     std::thread writer_{};

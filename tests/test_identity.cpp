@@ -330,6 +330,7 @@ int main() {
     assert(acceptedTransport->writes.empty());
     assert(accepted.verifyIdentity(error));
     assert(accepted.identity() && accepted.identity()->isApex5());
+    assert(!accepted.identityUnanswered());
     assert(acceptedTransport->writes.size() == 1);
     assert(acceptedTransport->writes[0][3] == kCmdGetInfo);
     assert(accepted.setTrigger(effect, error));
@@ -345,6 +346,7 @@ int main() {
     error.clear();
     assert(waking.verifyIdentity(error));
     assert(waking.identity() && waking.identity()->isApex5());
+    assert(!waking.identityUnanswered());
     assert(wakingTransport->writes.size() == 3);
 
     InputTransportStatus transportStatus{};
@@ -455,6 +457,7 @@ int main() {
     error.clear();
     assert(intermittentApex4.verifyIdentity(error));
     assert(intermittentApex4.identity() && intermittentApex4.identity()->isApex4());
+    assert(!intermittentApex4.identityUnanswered());
     assert(intermittentApex4Transport->writes.size() == 6);
 
     FakeTransport* wrongTransport = nullptr;
@@ -463,6 +466,7 @@ int main() {
     assert(!wrong.verifyIdentity(error));
     assert(error.find("Identity refused") != std::string::npos);
     assert(wrongTransport->writes.size() == 1);
+    assert(!wrong.identityUnanswered());
     assert(!wrong.setTrigger(effect, error));
     assert(wrongTransport->writes.size() == 1);
 
@@ -472,6 +476,7 @@ int main() {
     assert(!wrongApex4.verifyIdentity(error));
     assert(error.find("Identity refused") != std::string::npos);
     assert(wrongApex4Transport->writes.size() == 1);
+    assert(!wrongApex4.identityUnanswered());
 
     FakeTransport* silentApex4Transport = nullptr;
     auto silentApex4 = makeDevice(silentApex4Transport, 84, true, true);
@@ -480,6 +485,7 @@ int main() {
     assert(error.find("after 30 attempts") != std::string::npos);
     assert(error.find("observed_reports=0") != std::string::npos);
     assert(silentApex4Transport->writes.size() == 30);
+    assert(silentApex4.identityUnanswered());
     assert(!wrongApex4.setTrigger(effect, error));
     assert(wrongApex4Transport->writes.size() == 1);
 
@@ -489,6 +495,7 @@ int main() {
     assert(!silent.verifyIdentity(error));
     assert(error.find("No valid command 0x01") != std::string::npos);
     assert(silentTransport->writes.size() == 3);
+    assert(silent.identityUnanswered());
     assert(error.find("vendor interface did not answer") != std::string::npos);
 
     FakeTransport* cancelledTransport = nullptr;
@@ -497,6 +504,7 @@ int main() {
     assert(!cancelled.verifyIdentity(error, [] { return true; }));
     assert(error.find("stop request") != std::string::npos);
     assert(cancelledTransport->writes.empty());
+    assert(!cancelled.identityUnanswered());
 
     FakeTransport* cancelledMidTransport = nullptr;
     auto cancelledMid = makeDevice(cancelledMidTransport, 128, true);
@@ -505,6 +513,7 @@ int main() {
         error, [&] { return !cancelledMidTransport->writes.empty(); }));
     assert(error.find("stop request") != std::string::npos);
     assert(cancelledMidTransport->writes.size() == 1);
+    assert(!cancelledMid.identityUnanswered());
 
     std::cout << "Identity guard tests passed\n";
     return 0;

@@ -53,6 +53,7 @@ internal static class TrayLearningTests
             TestActivationPolicyStillAppliesAfterLearning();
             TestManualFixGamesPreservePhysicalInput();
             TestPerGameApexProfileSettings();
+            TestOnboardProfileSelectorLock();
             TestManualBridgeModeIsNotPersisted();
             TestSharedBridgeArguments();
             TestControllerCalibrations();
@@ -610,6 +611,21 @@ internal static class TrayLearningTests
         try { settings.SetApexProfileSlot("spiderman2", 5); }
         catch (ArgumentOutOfRangeException) { rejected = true; }
         Assert(rejected, "An invalid Apex profile slot was accepted.");
+    }
+
+    private static void TestOnboardProfileSelectorLock()
+    {
+        foreach (var model in new[] { "apex4", "APEX6", "unsupported" })
+            Assert(ControllerDetectionService.LocksOnboardProfile(model),
+                "The onboard profile selector stayed editable for " + model + ".");
+        foreach (var status in new[] { "apex5", "Apex5", "disconnected", "unavailable", ControllerDetectionService.Ambiguous, "", null })
+            Assert(!ControllerDetectionService.LocksOnboardProfile(status),
+                "The onboard profile selector was locked for " + (status ?? "null") + ".");
+        Assert(ControllerDetectionService.LocksOnboardProfile(
+                ControllerDetectionService.ParseVerifiedModel("Verified: Apex 4 (k2)")) &&
+            !ControllerDetectionService.LocksOnboardProfile(
+                ControllerDetectionService.ParseVerifiedModel("Verified: Apex 5 (k5)")),
+            "The identified model did not drive the onboard profile lock.");
     }
 
     private static void TestManualBridgeModeIsNotPersisted()

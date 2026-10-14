@@ -239,6 +239,7 @@ bool Apex5Device::verifyIdentity(std::string& error,
         error = "APEX device is not open";
         return false;
     }
+    identityUnanswered_ = false;
     if (identity_) {
         return true;
     }
@@ -362,6 +363,7 @@ bool Apex5Device::verifyIdentity(std::string& error,
         }
     }
 
+    identityUnanswered_ = true;
     if (apex4) {
         error = "No valid command 0xEC Apex 4 identity reply arrived after 30 attempts;" +
                 apex4Observation.describe() +

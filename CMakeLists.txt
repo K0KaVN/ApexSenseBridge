@@ -380,6 +380,15 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME bridge_runtime_support COMMAND ApexSenseBridgeBridgeRuntimeSupportTests)
 
+    add_executable(ApexSenseBridgeDeviceOpenRetryTests tests/test_device_open_retry.cpp)
+    target_include_directories(ApexSenseBridgeDeviceOpenRetryTests PRIVATE src)
+    if(MSVC)
+        target_compile_options(ApexSenseBridgeDeviceOpenRetryTests PRIVATE /W4 /permissive- /EHsc)
+    else()
+        target_compile_options(ApexSenseBridgeDeviceOpenRetryTests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME device_open_retry COMMAND ApexSenseBridgeDeviceOpenRetryTests)
+
     add_executable(ApexSenseBridgeBridgeTelemetryTests
         tests/test_bridge_telemetry.cpp
         src/cli/BridgeTelemetry.cpp

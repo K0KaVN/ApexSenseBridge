@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cli/DeviceOpenRetry.h"
 #include "cli/JsonSupport.h"
 #include "diagnostics/HidDiagnostics.h"
 #include "dualsense/DualSenseFirmware.h"
@@ -44,6 +45,9 @@ void printDevice(const asb::HidDeviceInfo& info, std::size_t index);
 std::optional<std::size_t> parseIndex(int argc, char** argv);
 std::optional<asb::flydigi::Apex5Device> openSelected(
     int argc, char** argv, std::string& error);
+std::optional<asb::flydigi::Apex5Device> openSelectedIndex(
+    std::optional<std::size_t> requested, const std::function<bool()>& shouldStop,
+    std::string& error, DeviceOpenFailure& failure);
 std::optional<asb::flydigi::Apex5Device> openSelectedIndex(
     std::optional<std::size_t> requested, const std::function<bool()>& shouldStop,
     std::string& error);
