@@ -50,6 +50,9 @@ namespace ApexSenseBridgeTray.Models
         // The support callout is introduced once, then never again.
         public bool SupportHintShown { get; set; }
         public List<string> ExcludedGames { get; set; }
+        // Games whose manual fix the user has applied themselves. They
+        // activate automatically as if their features were ready.
+        public List<string> ManualFixAllowedGames { get; set; }
         public Dictionary<string, int> ApexProfileSlots { get; set; }
         // Legacy scalar preferences remain for migration, not as an active
         // cross-model calibration. Never persist the last connected model.
@@ -125,6 +128,7 @@ namespace ApexSenseBridgeTray.Models
             ForcedProfile = "none";
             Language = "auto";
             ExcludedGames = new List<string>();
+            ManualFixAllowedGames = new List<string>();
             ApexProfileSlots = new Dictionary<string, int>();
         }
 
@@ -165,6 +169,25 @@ namespace ApexSenseBridgeTray.Models
             {
                 ExcludedGames.Add(normalizedOrTitle);
             }
+        }
+
+        public bool IsManualFixAllowed(string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(normalized) || ManualFixAllowedGames == null) return false;
+            foreach (var item in ManualFixAllowedGames)
+            {
+                if (string.Equals(item, normalized, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        public void SetManualFixAllowed(string normalized, bool allowed)
+        {
+            if (string.IsNullOrWhiteSpace(normalized)) return;
+            if (ManualFixAllowedGames == null) ManualFixAllowedGames = new List<string>();
+            ManualFixAllowedGames.RemoveAll(
+                item => string.Equals(item, normalized, StringComparison.OrdinalIgnoreCase));
+            if (allowed) ManualFixAllowedGames.Add(normalized);
         }
 
         public void SetGameExcludedAliases(string normalized, string title, bool excluded)
@@ -299,6 +322,7 @@ namespace ApexSenseBridgeTray.Models
                         settings.HapticThresholdPercent = Math.Max(0, Math.Min(95, settings.HapticThresholdPercent));
                         if (settings.GameExecutables == null) settings.GameExecutables = new Dictionary<string, string>();
                         if (settings.ExcludedGames == null) settings.ExcludedGames = new List<string>();
+                        if (settings.ManualFixAllowedGames == null) settings.ManualFixAllowedGames = new List<string>();
                         if (settings.ApexProfileSlots == null)
                         {
                             settings.ApexProfileSlots = new Dictionary<string, int>();
