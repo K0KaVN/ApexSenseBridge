@@ -1,5 +1,123 @@
 # Changelog
 
+## Unreleased
+
+### Pending APEX 5 restore no longer blocks sessions ([#44](https://github.com/ReynArts/ApexSenseBridge/issues/44), [#45](https://github.com/ReynArts/ApexSenseBridge/issues/45))
+
+- HidHide visibility is always restored first. When the APEX 5 whose profile
+  and input transport must be restored is off, asleep, connected another way
+  (USB cable vs 2.4 GHz receiver) or replaced, those settings are kept in a
+  separate deferred record and applied automatically the next time that
+  controller is awake and connected the same way.
+- A deferred restore never blocks or delays a session on another controller
+  (an APEX 6 Pro could no longer start, and the virtual DualSense connected and
+  disconnected in a loop). A session on that same controller restores the
+  original settings first, before reading its own starting state, and is
+  refused while they cannot be restored.
+- "Restore HidHide" (`restore-controller-visibility`) succeeds with a clear
+  message when visibility is restored and the APEX 5 settings are deferred; it
+  fails only when visibility itself cannot be restored. Recovery markers left
+  by 1.0.1 are converted automatically.
+- The Tray stops automatic engine restarts after two identical failures for the
+  same game process and shows a notification; it resumes when the game
+  restarts or Retry is clicked, or when the controller changes while the
+  dashboard is open. An "APEX identity check failed" start (exit code 3) gets
+  one quick retry after about 2 s and is never paused, so a controller woken
+  while the game runs is still picked up.
+
+### APEX 5 on the 2.4 GHz receiver, firmware REV_0800 ([#47](https://github.com/ReynArts/ApexSenseBridge/issues/47))
+
+- The input-transport status is no longer rejected as malformed when the
+  receiver reports a non-boolean byte at offset 10 (`0x16`). Only the
+  controller-data and raw-data routing bytes are validated strictly; keyboard,
+  mouse and third-party fields are kept as unknown when they are not 0 or 1, so
+  the bridge can snapshot and restore the original transport and the
+  independent LT/RT recovery works on that firmware.
+- The motion diagnostic refuses only when third-party control is known to be
+  active. The transport snapshot log shows unknown fields as `unknown(0xNN)`.
+
+### Bridge startup no longer hangs ([#15](https://github.com/ReynArts/ApexSenseBridge/issues/15))
+
+- Cancelling a HID read or write waits at most 500 ms. An interface that never
+  completes the cancellation fails with a clear error instead of blocking
+  startup and the Tray's stop request; virtual DualSense feature reads time out
+  after 1 s.
+- Engine output is flushed immediately, so the Tray log keeps the engine's
+  messages even when the process has to be terminated.
+- Startup logs each phase (`Startup phase: identity (+8 ms)`) and warns once,
+  naming the phase, if the bridge is still not ready after 12 s.
+- A stop request during startup, including the controller identity check and
+  isolation, is honoured between steps and exits cleanly (exit code 10).
+- HID enumeration reads string descriptors only from Flydigi and Sony devices;
+  `diagnose` still reports every device.
+
+### APEX 4 receiver identity and onboard profiles ([#41](https://github.com/ReynArts/ApexSenseBridge/issues/41))
+
+- When the controller streams input but does not answer the identity command
+  yet, the bridge keeps reopening and re-enumerating the vendor interface for
+  up to about 8–10 s instead of failing the first start. The retry stops
+  immediately on a stop request; other failures keep the 4 s window.
+- The per-game "APEX profile" selector is disabled with an "APEX 5 only" hint
+  while an APEX 4, APEX 6 Pro or other non-APEX 5 controller is identified.
+  The saved per-game profile is kept and applies again with an APEX 5.
+
+### Adaptive triggers ([#40](https://github.com/ReynArts/ApexSenseBridge/issues/40), [#35](https://github.com/ReynArts/ApexSenseBridge/issues/35))
+
+- DualSense Bow (`0x22`) is decoded with its start zone, end zone, draw
+  strength and snap force. It stays a progressive resistance by default (Neverness
+  to Everness throttle, Control Resonant LT); a strong snap (7–8) that ends
+  before the last zone becomes a resistance released at the end zone (Control
+  Resonant RT). Malformed Bow masks fall back to a resistance from the first
+  zone. Force strengths (8–64) are unchanged.
+- APEX 5: a Bow with a strong snap now plays as a draw tension followed by a
+  break. The bridge sends the draw resistance, follows the physical trigger
+  position, switches to the break near the end zone (85% of its position on the
+  0–255 axis) and brings the tension back when the trigger is released. A
+  break alone felt like a gun trigger click rather than a bow. APEX 4 keeps
+  the single break, and the DualSense snap-back force is not reproduced.
+- Legacy `0x11`/`0x12` effects: their 0–10 strength now maps onto the native
+  0–64 force scale instead of being sent raw, which made them up to six times
+  weaker than native effects. A strength above 10 is ignored like other invalid
+  blocks, and 0 releases the trigger. `0x02`/`0x12` now send their absolute end
+  position as the SniperBreak resistance length (end − start), so `{25, 90}`
+  resists from 25 to 90 instead of 25 to 115.
+
+### APEX 5 trigger reaches 100% when pressed alone ([#48](https://github.com/ReynArts/ApexSenseBridge/issues/48))
+
+- A single fully pressed LT or RT now reports 255 instead of 254. The mapped
+  HID axis carries LT and RT as `0x8000 ± trigger × 128`, so a full trigger is
+  `0xFF80`/`0x0080`, not the axis limit; scaling against the axis limit
+  capped it at about 99.6%, which games such as EA Skate treat as not fully
+  pressed. Pressing both triggers already reached 100% through the independent
+  LT/RT bytes.
+
+### APEX 5 triggers and rumble ([#22](https://github.com/ReynArts/ApexSenseBridge/issues/22), [#25](https://github.com/ReynArts/ApexSenseBridge/issues/25), [#40](https://github.com/ReynArts/ApexSenseBridge/issues/40), [#42](https://github.com/ReynArts/ApexSenseBridge/issues/42))
+
+- Over the 2.4 GHz receiver, adaptive-trigger and grip-rumble writes run on a
+  background writer instead of inside the game's feedback callback: trigger
+  effects go first, pending rumble keeps only the newest value, writes are
+  10 ms apart and rumble waits 30 ms after a trigger write (100 ms at most).
+  This targets triggers rattling or twitching while vibration is on, seen only
+  over the receiver. Battery and lightbar requests respect the same spacing.
+  Wired APEX 5 stays synchronous.
+- Pending rumble is written at most about 100 ms after it was first queued,
+  even while trigger effects keep changing (APEX 4 and the APEX 5 receiver);
+  continuous audio haptics could previously delay it indefinitely.
+- Switching between the mapped HID triggers and the independent LT/RT bytes
+  uses hysteresis (on when both are above 8, off when either drops below 4), so
+  a finger resting on one trigger no longer makes LT/RT flip between two values
+  on every report.
+- The vendor input queue is fully drained, so triggers and motion always use
+  the newest report instead of one queued during a stall. Independent LT/RT
+  bytes older than 50 ms are used only while the live mapped axis confirms
+  them, so a released trigger no longer looks held for up to 250 ms. Motion
+  keeps its 250 ms limit.
+- The bridge log names the connection (`connection: wired` or
+  `2.4 GHz receiver`). The session summary adds APEX 5 write durations
+  (`apex5_trigger_*`, `apex5_rumble_*`, `apex_feedback_writer`), per-field
+  input changes, trigger source switches, LT/RT oscillations, the longest
+  vendor stream gap and button bounces (`input_*`).
+
 ## 1.0.1
 
 ### Adaptive triggers on APEX 4/5 ([#35](https://github.com/ReynArts/ApexSenseBridge/issues/35), [#38](https://github.com/ReynArts/ApexSenseBridge/issues/38), [#22](https://github.com/ReynArts/ApexSenseBridge/issues/22), [#23](https://github.com/ReynArts/ApexSenseBridge/issues/23))
