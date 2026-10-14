@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+### Per-zone and rhythmic trigger emulation (APEX 5, on by default)
+
+- The APEX 5 now follows DualSense trigger curves and rhythms from the PC. It
+  is on by default; `--no-zone-emulation` on `bridge-triggers` turns it off
+  (`--zone-emulation` is still accepted and does nothing). The Tray has a
+  "Trigger effect emulation" switch in its settings (APEX 5 only, on by
+  default, translated in every language), and the Playnite extension has the
+  same option in its settings. APEX 4 and APEX 6 are unchanged. A regression test feeds 3,400 varied effects to the bridge with and
+  without the emulation: the 3,239 that the emulation does not handle produce
+  exactly the same writes and counters as before, and only the 161 that the
+  old bridge flattened (graded or gapped `0x21`/`0x26` profiles, Galloping,
+  Machine) change.
+- Latency on an APEX 5: a zone update costs 4 microseconds on average inside the
+  bridge, and the rhythm clock is 0.33 ms late on average (0.91 ms at most). The
+  trigger actuator itself needs about 90 ms to react, which dominates. The
+  telemetry reports `zone_latency_*` and `periodic_lateness_*`.
+- A DualSense Feedback effect (`0x21`, including a slope/progressive
+  ramp) carries ten per-zone forces, but the APEX 4/5 command has a single
+  resistance. Until now the bridge collapsed such a profile into one constant
+  resistance at its peak force.
+- The forces now follow the scale measured on an APEX 5 (1, 16, 32, 64, 96, 128,
+  160, 192 for DualSense strengths 1 to 8, and amplitudes 1 to 80 for
+  vibration), still scaled by the trigger-strength setting. A profile that one resistance cannot represent
+  (graded forces, gaps between zones, or ending before the last zone) is
+  followed instead: the bridge re-sends the resistance each time the trigger
+  crosses a zone boundary, with a small hysteresis on the way back, and releases
+  the trigger after the last active zone. Uniform profiles keep the existing
+  translation and behaviour. The force scale (8 to 64) and the
+  trigger-strength setting are unchanged.
+- A vibration profile (`0x26`) with different amplitudes per zone is followed the
+  same way, with a constant start position and a wider hysteresis (30 axis
+  units) because the vibration itself moves the trigger axis. It is emulated only
+  when the requested frequency is 25 or more; slower vibrations keep the static
+  translation, because a 15 frequency produced rapid zone toggling on an APEX 5.
+- DualSense Galloping (`0x23`) and Machine (`0x27`) have a rhythm that the APEX
+  command cannot express, so with the option they are played from the PC over
+  time: Galloping as two beats per cycle at 1 to 8 Hz, Machine as an amplitude
+  modulated between its two levels over its period. They are interpretations of
+  the generator's documentation. On an APEX 5 a heartbeat (Galloping, 1 Hz)
+  was recognised and a gallop (2 Hz) was judged fine; very short beats are not
+  felt while the trigger is held mid-travel, so a beat lasts at least 150 ms there
+  (40 ms when fully pressed). A Machine burst was judged good once its faint
+  parts were raised to amplitude 40 away from the fully pressed position.
+- Telemetry reports `zone_profiles`, `zone_transitions`, `periodic_profiles` and
+  `periodic_transitions`.
+- The `Apex45TriggerCapture --zone-check` diagnostic compares the static
+  translation with the emulation for a progressive ramp and for a wall followed
+  by a free zone. On an APEX 5 over the 2.4 GHz receiver, one tester felt and
+  heard the ramp without jolts or delay and found the wall-then-free effect
+  working as intended; the ramp's contrast against a constant resistance was
+  small on the current 8 to 64 force scale. Single-user, subjective, not
+  calibrated.
+
 ## 1.0.2
 
 ### Automatic activation for manual fixes ([#36](https://github.com/ReynArts/ApexSenseBridge/issues/36), [#46](https://github.com/ReynArts/ApexSenseBridge/pull/46))
