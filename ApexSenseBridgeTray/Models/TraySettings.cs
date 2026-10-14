@@ -50,8 +50,6 @@ namespace ApexSenseBridgeTray.Models
         // The support callout is introduced once, then never again.
         public bool SupportHintShown { get; set; }
         public List<string> ExcludedGames { get; set; }
-        // Games whose manual fix the user has applied themselves. They
-        // activate automatically as if their features were ready.
         public List<string> ManualFixAllowedGames { get; set; }
         public Dictionary<string, int> ApexProfileSlots { get; set; }
         // Legacy scalar preferences remain for migration, not as an active

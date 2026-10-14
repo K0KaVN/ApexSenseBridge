@@ -1005,7 +1005,15 @@ namespace ApexSenseBridgeTray
             }
             else if (currentTabIndex == 1)
             {
-                CycleSelectedApexProfile(1);
+                var game = SelectedGame;
+                if (game != null && GameActivationPolicy.CanToggleManualFix(game.Game, game.IsExcluded))
+                {
+                    ToggleSelectedManualFix();
+                }
+                else
+                {
+                    CycleSelectedApexProfile(1);
+                }
             }
             else if (currentTabIndex == 2)
             {
@@ -1837,6 +1845,7 @@ namespace ApexSenseBridgeTray
             if (BtnDetailToggleManualFix != null)
             {
                 BtnDetailToggleManualFix.Visibility = game.ManualFixVisibility;
+                BtnDetailToggleManualFix.IsEnabled = GameActivationPolicy.CanToggleManualFix(game.Game, game.IsExcluded);
                 if (BtnDetailToggleExclude != null)
                 {
                     BtnDetailToggleExclude.Margin = new Thickness(0, 0, 0, game.RequiresManualFix ? 10 : 18);
@@ -1958,8 +1967,14 @@ namespace ApexSenseBridgeTray
 
         private void OnDetailToggleManualFixClick(object sender, RoutedEventArgs e)
         {
+            ToggleSelectedManualFix();
+        }
+
+        private void ToggleSelectedManualFix()
+        {
             var game = SelectedGame;
-            if (game == null || settings == null || !game.RequiresManualFix) return;
+            if (game == null || settings == null ||
+                !GameActivationPolicy.CanToggleManualFix(game.Game, game.IsExcluded)) return;
 
             game.IsManualFixAllowed = !game.IsManualFixAllowed;
             settings.SetManualFixAllowed(game.Normalized, game.IsManualFixAllowed);
@@ -2848,7 +2863,6 @@ namespace ApexSenseBridgeTray
         }
 
         private bool isManualFixAllowed;
-        /// <summary>The user applied the manual fix and allowed automatic activation.</summary>
         public bool IsManualFixAllowed
         {
             get => isManualFixAllowed;

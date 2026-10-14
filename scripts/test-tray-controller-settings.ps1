@@ -104,6 +104,23 @@ try {
         }
         $count++
     }
+    [string]$fixCatalog = (@{ games = @([ordered]@{ title = "Manual Fix Test"; normalized = "manualfixtest"; adaptiveTriggers = $true; adaptiveTriggersManualFix = $true }) } | ConvertTo-Json -Depth 4 -Compress)
+    if (-not [ApexSenseBridgeTray.Services.CloudGameListService].GetMethod("ParseAndLoadJson", $flags).Invoke($service, [object[]]@($fixCatalog))) { throw "Manual fix catalogue rejected" }
+    $windowType.GetMethod("LoadGames", $flags).Invoke($window, @())
+    $windowType.GetMethod("SelectGame", $flags).Invoke($window, @([int]0))
+    $fixGame = $windowType.GetProperty("SelectedGame").GetValue($window)
+    if (-not $fixGame -or -not $fixGame.RequiresManualFix) { throw "No manual fix game is selectable" }
+    $statusMethod.Invoke($window, @("apex4"))
+    $fixGame.IsExcluded = $true
+    $windowType.GetMethod("UpdateDetailPane", $flags).Invoke($window, @())
+    if ((Get-Control "BtnDetailToggleManualFix").IsEnabled) { throw "Manual fix toggle is enabled on an excluded game" }
+    $windowType.GetMethod("ActivateCurrentItem", $flags).Invoke($window, @())
+    if ($fixGame.IsManualFixAllowed -or $settings.IsManualFixAllowed($fixGame.Normalized)) { throw "Select toggled the manual fix of an excluded game" }
+    $count++
+    $fixGame.IsExcluded = $false
+    $windowType.GetMethod("UpdateDetailPane", $flags).Invoke($window, @())
+    if (-not (Get-Control "BtnDetailToggleManualFix").IsEnabled) { throw "Manual fix toggle is disabled on an included game" }
+    $count++
     Write-Output "PASS: $count controller calibration/hot-swap UI scenarios; no user settings written."
 } finally {
     if ($window) { $window.Close() }

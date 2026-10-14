@@ -581,6 +581,10 @@ internal static class TrayLearningTests
                 game, settings, "DyingLightGame", "Dying Light", "DyingLightGame.exe"),
             "The manual-fix block reason was not exposed to the notification path.");
 
+        Assert(GameActivationPolicy.CanToggleManualFix(game, false) &&
+               !GameActivationPolicy.CanToggleManualFix(game, true) &&
+               !GameActivationPolicy.CanToggleManualFix(null, false),
+            "The manual-fix allowance could be toggled on an excluded or missing game.");
         settings.SetManualFixAllowed(game.Normalized, true);
         Assert(GameActivationPolicy.ShouldActivate(
                 game, settings, "DyingLightGame", "Dying Light", "DyingLightGame.exe") &&
