@@ -87,7 +87,8 @@ int commandDiagnose(int argc, char** argv) {
     }
 
     std::string error;
-    const auto allDevices = asb::platform::enumerateHidDevices(error);
+    const auto allDevices = asb::platform::enumerateHidDevices(
+        error, asb::platform::HidStringQuery::AllDevices);
     const auto selected = asb::diagnostics::selectHidDevices(allDevices, includeAllHid);
 
     if (!error.empty()) {

@@ -1,12 +1,15 @@
 #ifdef _WIN32
 
 #include "platform/HidTransport.h"
+#include "platform/windows/WindowsOverlappedIo.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <winioctl.h>
 #include <objbase.h>
 #include <setupapi.h>
+#include <hidclass.h>
 #include <hidsdi.h>
 #include <hidpi.h>
 #include <cfgmgr32.h>
@@ -15,13 +18,16 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cwctype>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace asb::platform {
@@ -196,27 +202,6 @@ std::optional<std::uint16_t> idFromPath(std::wstring_view path, std::wstring_vie
     return result;
 }
 
-class ScopedHandle {
-public:
-    explicit ScopedHandle(HANDLE handle) noexcept : handle_(handle) {}
-    ~ScopedHandle() {
-        if (handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE) {
-            CloseHandle(handle_);
-        }
-    }
-
-    ScopedHandle(const ScopedHandle&) = delete;
-    ScopedHandle& operator=(const ScopedHandle&) = delete;
-
-    [[nodiscard]] HANDLE get() const noexcept { return handle_; }
-    [[nodiscard]] bool valid() const noexcept {
-        return handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE;
-    }
-
-private:
-    HANDLE handle_ = INVALID_HANDLE_VALUE;
-};
-
 DWORD waitMilliseconds(std::chrono::milliseconds timeout) noexcept {
     if (timeout.count() <= 0) {
         return 0;
@@ -239,6 +224,9 @@ bool writeFailureMayFallBack(DWORD errorCode) noexcept {
     }
 }
 
+constexpr std::string_view kUnresponsiveInterfaceError =
+    "HID I/O cancellation did not complete; the HID interface is unresponsive";
+
 class WindowsHidTransport final : public HidTransport {
 public:
     WindowsHidTransport(HidDeviceInfo info, HANDLE handle)
@@ -247,6 +235,12 @@ public:
     ~WindowsHidTransport() override {
         if (handle_ != INVALID_HANDLE_VALUE) {
             CloseHandle(handle_);
+        }
+        for (auto& io : parked_) {
+            if (WaitForSingleObject(io->event, waitMilliseconds(kOverlappedCancelTimeout)) !=
+                WAIT_OBJECT_0) {
+                (void)io.release();
+            }
         }
     }
 
@@ -259,8 +253,7 @@ public:
     }
 
     bool writeOutputReport(std::span<const std::uint8_t> report, std::string& error) override {
-        if (!isOpen()) {
-            error = "HID handle is not open";
+        if (!usable(error)) {
             return false;
         }
         if (info_.outputReportLength == 0) {
@@ -275,13 +268,17 @@ public:
             return false;
         }
 
-        std::vector<std::uint8_t> wire(info_.outputReportLength, 0);
-        std::copy(report.begin(), report.end(), wire.begin());
+        auto io = std::make_unique<OverlappedIo>(info_.outputReportLength);
+        std::copy(report.begin(), report.end(), io->buffer.begin());
 
-        DWORD written = 0;
         DWORD writeError = ERROR_SUCCESS;
-        if (writeFileOverlapped(wire, written, writeError) && written == wire.size()) {
+        switch (writeFileOverlapped(io, writeError, error)) {
+        case WriteOutcome::Written:
             return true;
+        case WriteOutcome::Aborted:
+            return false;
+        case WriteOutcome::Rejected:
+            break;
         }
 
         // HidD_SetOutputReport has no timeout; never retry after a stalled or lost interface.
@@ -293,7 +290,7 @@ public:
             return false;
         }
 
-        if (HidD_SetOutputReport(handle_, wire.data(), static_cast<ULONG>(wire.size()))) {
+        if (HidD_SetOutputReport(handle_, io->buffer.data(), static_cast<ULONG>(io->buffer.size()))) {
             return true;
         }
 
@@ -307,22 +304,47 @@ public:
     }
 
     bool readFeatureReport(std::span<std::uint8_t> report, std::string& error) override {
-        if (!isOpen()) {
-            error = "HID handle is not open";
+        if (!usable(error)) {
             return false;
         }
-        if (report.empty() || report.size() > (std::numeric_limits<ULONG>::max)()) {
+        if (report.empty() || report.size() > (std::numeric_limits<DWORD>::max)()) {
             error = "HID feature-report buffer has an invalid size";
             return false;
         }
-        if (HidD_GetFeature(handle_, report.data(), static_cast<ULONG>(report.size()))) {
-            return true;
+
+        auto io = std::make_unique<OverlappedIo>(report.size());
+        if (!io->event) {
+            error = "CreateEventW for HID feature read failed";
+            return false;
+        }
+        std::copy(report.begin(), report.end(), io->buffer.begin());
+        const auto size = static_cast<DWORD>(io->buffer.size());
+        if (!DeviceIoControl(handle_, IOCTL_HID_GET_FEATURE, io->buffer.data(), size,
+                             io->buffer.data(), size, nullptr, &io->overlapped)) {
+            const auto requestError = GetLastError();
+            if (requestError != ERROR_IO_PENDING) {
+                error = "Reading the HID feature report failed (" +
+                        std::to_string(requestError) + ": " + win32Error(requestError) + ')';
+                return false;
+            }
         }
 
-        const auto code = GetLastError();
-        error = "HidD_GetFeature failed (" + std::to_string(code) + ": " +
-                win32Error(code) + ')';
-        return false;
+        constexpr auto featureTimeout = std::chrono::milliseconds(1000);
+        const auto wait = awaitCompletion(io, featureTimeout, error);
+        if (wait == Wait::Failed) {
+            return false;
+        }
+        DWORD returned = 0;
+        if (!GetOverlappedResult(handle_, &io->overlapped, &returned, FALSE)) {
+            const auto code = GetLastError();
+            error = wait == Wait::Cancelled && code == ERROR_OPERATION_ABORTED
+                ? "Reading the HID feature report timed out after 1000 ms"
+                : "Reading the HID feature report failed (" + std::to_string(code) + ": " +
+                      win32Error(code) + ')';
+            return false;
+        }
+        std::copy(io->buffer.begin(), io->buffer.end(), report.begin());
+        return true;
     }
 
     HidReadStatus readInputReport(std::span<std::uint8_t> report,
@@ -330,8 +352,7 @@ public:
                                   std::size_t& bytesRead,
                                   std::string& error) override {
         bytesRead = 0;
-        if (!isOpen()) {
-            error = "HID handle is not open";
+        if (!usable(error)) {
             return HidReadStatus::Error;
         }
         if (report.empty()) {
@@ -339,18 +360,16 @@ public:
             return HidReadStatus::Error;
         }
 
-        ScopedHandle event(CreateEventW(nullptr, TRUE, FALSE, nullptr));
-        if (!event.valid()) {
+        auto io = std::make_unique<OverlappedIo>(report.size());
+        if (!io->event) {
             const auto code = GetLastError();
             error = "CreateEventW for HID read failed (" + std::to_string(code) +
                     ": " + win32Error(code) + ')';
             return HidReadStatus::Error;
         }
 
-        OVERLAPPED overlapped{};
-        overlapped.hEvent = event.get();
-        if (!ReadFile(handle_, report.data(), static_cast<DWORD>(report.size()),
-                      nullptr, &overlapped)) {
+        if (!ReadFile(handle_, io->buffer.data(), static_cast<DWORD>(io->buffer.size()),
+                      nullptr, &io->overlapped)) {
             const auto readError = GetLastError();
             if (readError != ERROR_IO_PENDING) {
                 error = "ReadFile failed (" + std::to_string(readError) +
@@ -359,88 +378,121 @@ public:
             }
         }
 
-        const DWORD waitResult = WaitForSingleObject(event.get(), waitMilliseconds(timeout));
-        if (waitResult == WAIT_TIMEOUT) {
-            CancelIoEx(handle_, &overlapped);
-            DWORD completed = 0;
-            if (GetOverlappedResult(handle_, &overlapped, &completed, TRUE)) {
-                bytesRead = completed;
-                return completed > 0 ? HidReadStatus::Data : HidReadStatus::Timeout;
-            }
-            const auto completionError = GetLastError();
-            if (completionError == ERROR_OPERATION_ABORTED) {
-                return HidReadStatus::Timeout;
-            }
-            error = "HID read cancellation failed (" + std::to_string(completionError) +
-                    ": " + win32Error(completionError) + ')';
-            return HidReadStatus::Error;
-        }
-        if (waitResult != WAIT_OBJECT_0) {
-            const auto waitError = GetLastError();
-            CancelIoEx(handle_, &overlapped);
-            DWORD ignored = 0;
-            GetOverlappedResult(handle_, &overlapped, &ignored, TRUE);
-            error = "Waiting for HID input failed (" + std::to_string(waitError) +
-                    ": " + win32Error(waitError) + ')';
+        const auto wait = awaitCompletion(io, timeout, error);
+        if (wait == Wait::Failed) {
             return HidReadStatus::Error;
         }
 
         DWORD completed = 0;
-        if (!GetOverlappedResult(handle_, &overlapped, &completed, FALSE)) {
+        if (!GetOverlappedResult(handle_, &io->overlapped, &completed, FALSE)) {
             const auto completionError = GetLastError();
-            error = "Completing HID read failed (" + std::to_string(completionError) +
-                    ": " + win32Error(completionError) + ')';
+            if (wait == Wait::Cancelled && completionError == ERROR_OPERATION_ABORTED) {
+                return HidReadStatus::Timeout;
+            }
+            error = (wait == Wait::Cancelled ? "HID read cancellation failed ("
+                                             : "Completing HID read failed (") +
+                    std::to_string(completionError) + ": " + win32Error(completionError) + ')';
             return HidReadStatus::Error;
         }
+        std::copy_n(io->buffer.begin(), completed, report.begin());
         bytesRead = completed;
         return completed > 0 ? HidReadStatus::Data : HidReadStatus::Timeout;
     }
 
 private:
-    bool writeFileOverlapped(std::span<const std::uint8_t> wire,
-                             DWORD& written,
-                             DWORD& errorCode) {
-        written = 0;
-        ScopedHandle event(CreateEventW(nullptr, TRUE, FALSE, nullptr));
-        if (!event.valid()) {
-            errorCode = GetLastError();
+    enum class Wait {
+        Completed,
+        Cancelled,
+        Failed,
+    };
+
+    enum class WriteOutcome {
+        Written,
+        Rejected,
+        Aborted,
+    };
+
+    bool usable(std::string& error) const {
+        if (!isOpen()) {
+            error = "HID handle is not open";
             return false;
         }
+        if (unresponsive_.load(std::memory_order_acquire)) {
+            error = kUnresponsiveInterfaceError;
+            return false;
+        }
+        return true;
+    }
 
-        OVERLAPPED overlapped{};
-        overlapped.hEvent = event.get();
-        if (!WriteFile(handle_, wire.data(), static_cast<DWORD>(wire.size()),
-                       nullptr, &overlapped)) {
+    Wait awaitCompletion(std::unique_ptr<OverlappedIo>& io,
+                         std::chrono::milliseconds timeout,
+                         std::string& error) {
+        const DWORD waitResult = WaitForSingleObject(io->event, waitMilliseconds(timeout));
+        if (waitResult == WAIT_OBJECT_0) {
+            return Wait::Completed;
+        }
+        const DWORD waitError = waitResult == WAIT_TIMEOUT ? ERROR_SUCCESS : GetLastError();
+        if (!cancelOverlappedIo(handle_, io->overlapped)) {
+            unresponsive_.store(true, std::memory_order_release);
+            {
+                const std::lock_guard lock(parkedMutex_);
+                parked_.push_back(std::move(io));
+            }
+            error = kUnresponsiveInterfaceError;
+            return Wait::Failed;
+        }
+        if (waitResult == WAIT_TIMEOUT) {
+            return Wait::Cancelled;
+        }
+        error = "Waiting for HID I/O failed (" + std::to_string(waitError) +
+                ": " + win32Error(waitError) + ')';
+        return Wait::Failed;
+    }
+
+    WriteOutcome writeFileOverlapped(std::unique_ptr<OverlappedIo>& io,
+                                     DWORD& errorCode,
+                                     std::string& error) {
+        if (!io->event) {
+            errorCode = GetLastError();
+            return WriteOutcome::Rejected;
+        }
+        if (!WriteFile(handle_, io->buffer.data(), static_cast<DWORD>(io->buffer.size()),
+                       nullptr, &io->overlapped)) {
             errorCode = GetLastError();
             if (errorCode != ERROR_IO_PENDING) {
-                return false;
+                return WriteOutcome::Rejected;
             }
         }
 
         constexpr auto writeTimeout = std::chrono::milliseconds(1000);
-        const DWORD waitResult = WaitForSingleObject(event.get(), waitMilliseconds(writeTimeout));
-        if (waitResult != WAIT_OBJECT_0) {
-            errorCode = waitResult == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError();
-            CancelIoEx(handle_, &overlapped);
-            DWORD ignored = 0;
-            GetOverlappedResult(handle_, &overlapped, &ignored, TRUE);
-            return false;
+        switch (awaitCompletion(io, writeTimeout, error)) {
+        case Wait::Completed:
+            break;
+        case Wait::Cancelled:
+            errorCode = ERROR_TIMEOUT;
+            return WriteOutcome::Rejected;
+        case Wait::Failed:
+            return WriteOutcome::Aborted;
         }
-        if (!GetOverlappedResult(handle_, &overlapped, &written, FALSE)) {
+        DWORD written = 0;
+        if (!GetOverlappedResult(handle_, &io->overlapped, &written, FALSE)) {
             errorCode = GetLastError();
-            return false;
+            return WriteOutcome::Rejected;
         }
-        errorCode = written == wire.size() ? ERROR_SUCCESS : ERROR_WRITE_FAULT;
-        return written == wire.size();
+        errorCode = written == io->buffer.size() ? ERROR_SUCCESS : ERROR_WRITE_FAULT;
+        return written == io->buffer.size() ? WriteOutcome::Written : WriteOutcome::Rejected;
     }
 
     HidDeviceInfo info_;
     HANDLE handle_ = INVALID_HANDLE_VALUE;
+    std::atomic<bool> unresponsive_{false};
+    std::mutex parkedMutex_;
+    std::vector<std::unique_ptr<OverlappedIo>> parked_;
 };
 
 } // namespace
 
-std::vector<HidDeviceInfo> enumerateHidDevices(std::string& error) {
+std::vector<HidDeviceInfo> enumerateHidDevices(std::string& error, HidStringQuery strings) {
     std::vector<HidDeviceInfo> devices;
 
     GUID hidGuid{};
@@ -515,9 +567,11 @@ std::vector<HidDeviceInfo> enumerateHidDevices(std::string& error) {
 
         info.vendorId = attributes.VendorID;
         info.productId = attributes.ProductID;
-        info.manufacturer = hidString(handle, HidD_GetManufacturerString);
-        info.product = hidString(handle, HidD_GetProductString);
-        info.serial = hidString(handle, HidD_GetSerialNumberString);
+        if (queriesHidStrings(strings, info.vendorId, info.productId)) {
+            info.manufacturer = hidString(handle, HidD_GetManufacturerString);
+            info.product = hidString(handle, HidD_GetProductString);
+            info.serial = hidString(handle, HidD_GetSerialNumberString);
+        }
 
         PHIDP_PREPARSED_DATA preparsed = nullptr;
         if (HidD_GetPreparsedData(handle, &preparsed)) {

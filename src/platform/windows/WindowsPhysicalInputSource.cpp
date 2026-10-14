@@ -19,6 +19,7 @@
 #include "platform/HidTransport.h"
 #include "platform/XInputGamepad.h"
 #include "platform/XInputMapping.h"
+#include "platform/windows/WindowsOverlappedIo.h"
 
 #include <algorithm>
 #include <array>
@@ -200,14 +201,11 @@ public:
 
     ~HidPhysicalInputSource() override {
         if (handle_ != INVALID_HANDLE_VALUE) {
-            if (readPending_) {
-                CancelIoEx(handle_, &overlapped_);
-                DWORD ignored = 0;
-                (void)GetOverlappedResult(handle_, &overlapped_, &ignored, TRUE);
+            if (readPending_ && !cancelOverlappedIo(handle_, overlapped_)) {
+                (void)io_.release();
             }
             CloseHandle(handle_);
         }
-        if (event_) CloseHandle(event_);
         if (preparsed_) HidD_FreePreparsedData(preparsed_);
     }
 
@@ -284,10 +282,8 @@ private:
     HidPhysicalInputSource(HidDeviceInfo info, HANDLE handle,
                            PHIDP_PREPARSED_DATA preparsed, HIDP_CAPS caps)
         : info_(std::move(info)), handle_(handle), preparsed_(preparsed), caps_(caps),
-          report_(caps.InputReportByteLength, 0) {
-        event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        overlapped_.hEvent = event_;
-    }
+          io_(std::make_unique<OverlappedIo>(caps.InputReportByteLength)),
+          event_(io_->event), overlapped_(io_->overlapped), report_(io_->buffer) {}
 
     bool loadCapabilities(std::string& error) {
         if (!event_) {
@@ -515,10 +511,11 @@ private:
     HANDLE handle_ = INVALID_HANDLE_VALUE;
     PHIDP_PREPARSED_DATA preparsed_ = nullptr;
     HIDP_CAPS caps_{};
-    HANDLE event_ = nullptr;
-    OVERLAPPED overlapped_{};
+    std::unique_ptr<OverlappedIo> io_;
+    HANDLE event_;
+    OVERLAPPED& overlapped_;
     bool readPending_ = false;
-    std::vector<std::uint8_t> report_;
+    std::vector<std::uint8_t>& report_;
     std::vector<HIDP_VALUE_CAPS> valueCaps_;
     std::vector<HIDP_BUTTON_CAPS> buttonCaps_;
     bool combinedTriggerAxis_ = false;
@@ -651,14 +648,11 @@ public:
 
     ~Apex4PhysicalInputSource() override {
         if (handle_ != INVALID_HANDLE_VALUE) {
-            if (readPending_) {
-                CancelIoEx(handle_, &overlapped_);
-                DWORD ignored = 0;
-                (void)GetOverlappedResult(handle_, &overlapped_, &ignored, TRUE);
+            if (readPending_ && !cancelOverlappedIo(handle_, overlapped_)) {
+                (void)io_.release();
             }
             CloseHandle(handle_);
         }
-        if (event_) CloseHandle(event_);
     }
 
     PhysicalInputStatus waitForState(
@@ -734,10 +728,8 @@ public:
 
 private:
     Apex4PhysicalInputSource(const HidDeviceInfo& info, HANDLE handle)
-        : handle_(handle), report_(info.inputReportLength, 0) {
-        event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        overlapped_.hEvent = event_;
-    }
+        : handle_(handle), io_(std::make_unique<OverlappedIo>(info.inputReportLength)),
+          event_(io_->event), overlapped_(io_->overlapped), report_(io_->buffer) {}
 
     bool ensureReadPending(std::string& error) {
         if (readPending_) return true;
@@ -760,10 +752,11 @@ private:
     }
 
     HANDLE handle_ = INVALID_HANDLE_VALUE;
-    HANDLE event_ = nullptr;
-    OVERLAPPED overlapped_{};
+    std::unique_ptr<OverlappedIo> io_;
+    HANDLE event_;
+    OVERLAPPED& overlapped_;
     bool readPending_ = false;
-    std::vector<std::uint8_t> report_;
+    std::vector<std::uint8_t>& report_;
     PhysicalInputSourceStats stats_{};
     std::atomic<std::uint8_t> currentBatteryPercent_{100};
     std::atomic<std::uint8_t> currentChargeState_{0};
@@ -824,14 +817,11 @@ public:
 
     ~Apex5DualHidPhysicalInputSource() override {
         if (handle_ != INVALID_HANDLE_VALUE) {
-            if (readPending_) {
-                CancelIoEx(handle_, &overlapped_);
-                DWORD ignored = 0;
-                (void)GetOverlappedResult(handle_, &overlapped_, &ignored, TRUE);
+            if (readPending_ && !cancelOverlappedIo(handle_, overlapped_)) {
+                (void)io_.release();
             }
             CloseHandle(handle_);
         }
-        if (event_) CloseHandle(event_);
     }
 
     PhysicalInputStatus waitForState(
@@ -969,12 +959,10 @@ private:
         const HidDeviceInfo& info, HANDLE handle,
         std::unique_ptr<HidPhysicalInputSource> mappedGamepad,
         std::unique_ptr<XInputGamepad> xinputGamepad)
-        : handle_(handle), report_(info.inputReportLength, 0),
+        : handle_(handle), io_(std::make_unique<OverlappedIo>(info.inputReportLength)),
+          event_(io_->event), overlapped_(io_->overlapped), report_(io_->buffer),
           mappedGamepad_(std::move(mappedGamepad)),
-          xinputGamepad_(std::move(xinputGamepad)) {
-        event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        overlapped_.hEvent = event_;
-    }
+          xinputGamepad_(std::move(xinputGamepad)) {}
 
     bool ensureReadPending(std::string& error) {
         if (readPending_) return true;
@@ -1114,10 +1102,11 @@ private:
     }
 
     HANDLE handle_ = INVALID_HANDLE_VALUE;
-    HANDLE event_ = nullptr;
-    OVERLAPPED overlapped_{};
+    std::unique_ptr<OverlappedIo> io_;
+    HANDLE event_;
+    OVERLAPPED& overlapped_;
     bool readPending_ = false;
-    std::vector<std::uint8_t> report_;
+    std::vector<std::uint8_t>& report_;
     std::optional<dualsense::DualSenseInputState> lastVendorState_;
     std::optional<std::chrono::steady_clock::time_point> lastVendorStateAt_;
     IndependentTriggerStreamFreshness independentTriggerFreshness_;

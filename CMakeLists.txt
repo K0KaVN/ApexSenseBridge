@@ -35,6 +35,7 @@ add_library(asb_core STATIC
     src/haptics/HapticProcessor.cpp
     src/platform/Apex6InputFusion.cpp
     src/platform/AudioEndpointProtection.cpp
+    src/platform/HidTransport.cpp
     src/platform/PhysicalInputSource.h
     src/platform/SessionControl.cpp
     src/platform/XInputMapping.cpp
@@ -467,6 +468,18 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME physical_isolation_space_station_guard
                  COMMAND ApexSenseBridgePhysicalIsolationWindowsTests)
+
+        add_executable(ApexSenseBridgeHidTransportWindowsTests
+            tests/test_windows_hid_transport.cpp
+        )
+        target_link_libraries(ApexSenseBridgeHidTransportWindowsTests PRIVATE asb_core)
+        if(MSVC)
+            target_compile_options(ApexSenseBridgeHidTransportWindowsTests PRIVATE /W4 /permissive- /EHsc)
+        else()
+            target_compile_options(ApexSenseBridgeHidTransportWindowsTests PRIVATE -Wall -Wextra -Wpedantic)
+        endif()
+        add_test(NAME hid_transport_windows
+                 COMMAND ApexSenseBridgeHidTransportWindowsTests)
 
         add_test(NAME installer_registry_contract
                  COMMAND powershell -NoProfile -NonInteractive

@@ -6,9 +6,16 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <optional>
+#include <ostream>
+#include <streambuf>
+#include <string>
+#include <string_view>
+#include <thread>
 
 namespace asb::cli {
 
@@ -102,6 +109,85 @@ private:
     std::optional<Clock::time_point> pressedAt_;
     std::chrono::milliseconds maximumHold_{};
     std::uint64_t presses_ = 0;
+};
+
+class LineFlushingStreamBuffer final : public std::streambuf {
+public:
+    explicit LineFlushingStreamBuffer(std::streambuf* target) noexcept : target_(target) {}
+    [[nodiscard]] std::streambuf* target() const noexcept { return target_; }
+
+protected:
+    int_type overflow(int_type character) override;
+    std::streamsize xsputn(const char_type* data, std::streamsize count) override;
+    int sync() override;
+
+private:
+    std::streambuf* target_;
+};
+
+class ScopedLineFlushedOutput {
+public:
+    explicit ScopedLineFlushedOutput(std::ostream& stream)
+        : stream_(stream), buffer_(stream.rdbuf()) {
+        stream_.rdbuf(&buffer_);
+    }
+    ~ScopedLineFlushedOutput() {
+        stream_.flush();
+        stream_.rdbuf(buffer_.target());
+    }
+    ScopedLineFlushedOutput(const ScopedLineFlushedOutput&) = delete;
+    ScopedLineFlushedOutput& operator=(const ScopedLineFlushedOutput&) = delete;
+
+private:
+    std::ostream& stream_;
+    LineFlushingStreamBuffer buffer_;
+};
+
+class StartupPhaseTracker {
+public:
+    using Clock = std::chrono::steady_clock;
+
+    StartupPhaseTracker(std::ostream& trace, Clock::time_point startedAt) noexcept
+        : trace_(trace), startedAt_(startedAt), phaseStartedAt_(startedAt) {}
+
+    void enter(std::string_view phase, Clock::time_point now = Clock::now());
+    void markReady(Clock::time_point now = Clock::now());
+    [[nodiscard]] std::optional<std::string> takeStallWarning(
+        Clock::time_point now, Clock::duration threshold);
+    [[nodiscard]] std::string phase() const;
+    [[nodiscard]] bool ready() const;
+    [[nodiscard]] bool stallReported() const;
+    [[nodiscard]] Clock::time_point startedAt() const noexcept { return startedAt_; }
+
+private:
+    void record(std::string_view phase, Clock::time_point now);
+
+    mutable std::mutex mutex_;
+    std::ostream& trace_;
+    const Clock::time_point startedAt_;
+    Clock::time_point phaseStartedAt_;
+    std::string phase_ = "starting";
+    bool ready_ = false;
+    bool stallReported_ = false;
+};
+
+class StartupStallWatchdog {
+public:
+    StartupStallWatchdog(StartupPhaseTracker& tracker, std::ostream& warnings,
+                         std::chrono::milliseconds threshold);
+    ~StartupStallWatchdog();
+    StartupStallWatchdog(const StartupStallWatchdog&) = delete;
+    StartupStallWatchdog& operator=(const StartupStallWatchdog&) = delete;
+
+    void stop() noexcept;
+
+private:
+    StartupPhaseTracker& tracker_;
+    std::ostream& warnings_;
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    bool stopping_ = false;
+    std::thread thread_;
 };
 
 } // namespace asb::cli

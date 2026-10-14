@@ -1,4 +1,5 @@
 #include "cli/Commands.h"
+#include "cli/BridgeRuntimeSupport.h"
 #include "cli/CommandSupport.h"
 #include "diagnostics/HidDiagnostics.h"
 #include "dualsense/DualSenseFirmware.h"
@@ -102,6 +103,7 @@ void printUsage() {
 }
 
 int run(int argc, char** argv) {
+    const ScopedLineFlushedOutput lineFlushedStdout(std::cout);
     installConsoleHandler();
 
     if (argc < 2) {

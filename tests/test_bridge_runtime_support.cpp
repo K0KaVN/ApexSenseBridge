@@ -6,9 +6,33 @@
 
 #include <cassert>
 #include <chrono>
+#include <ostream>
+#include <sstream>
+#include <string>
+#include <string_view>
 #include <thread>
 
 namespace {
+class CountingBuffer final : public std::stringbuf {
+public:
+    int syncs = 0;
+
+protected:
+    int sync() override {
+        ++syncs;
+        return std::stringbuf::sync();
+    }
+};
+
+std::size_t occurrences(const std::string& text, std::string_view needle) {
+    std::size_t count = 0;
+    for (auto position = text.find(needle); position != std::string::npos;
+         position = text.find(needle, position + needle.size())) {
+        ++count;
+    }
+    return count;
+}
+
 class FakeInput final : public asb::platform::PhysicalInputSource {
 public:
     bool combined = true;
@@ -137,5 +161,100 @@ int main() {
     current.vendorMaximumGapMs = 90;
     asb::cli::accumulatePhysicalInputStats(retired, current);
     assert(retired.vendorMaximumGapMs == 90);
+
+    CountingBuffer flushed;
+    asb::cli::LineFlushingStreamBuffer lines(&flushed);
+    std::ostream lineOutput(&lines);
+    lineOutput << "partial";
+    assert(flushed.syncs == 0 && flushed.str() == "partial");
+    lineOutput << " line\n";
+    assert(flushed.syncs == 1);
+    lineOutput << 'x';
+    assert(flushed.syncs == 1);
+    lineOutput << '\n';
+    assert(flushed.syncs == 2);
+    lineOutput << 42;
+    assert(flushed.syncs == 2);
+    lineOutput << "a\nb";
+    assert(flushed.syncs == 3);
+    lineOutput.flush();
+    assert(flushed.syncs == 4);
+    assert(flushed.str() == "partial line\nx\n42a\nb");
+
+    std::stringbuf scopedStorage;
+    std::ostream scopedOutput(&scopedStorage);
+    {
+        const asb::cli::ScopedLineFlushedOutput scoped(scopedOutput);
+        assert(scopedOutput.rdbuf() != &scopedStorage);
+        scopedOutput << "scoped\n";
+    }
+    assert(scopedOutput.rdbuf() == &scopedStorage);
+    assert(scopedStorage.str() == "scoped\n");
+
+    using StartupClock = asb::cli::StartupPhaseTracker::Clock;
+    const auto origin = StartupClock::time_point{} + std::chrono::hours(1);
+    std::ostringstream trace;
+    asb::cli::StartupPhaseTracker tracker(trace, origin);
+    assert(tracker.phase() == "starting" && !tracker.ready());
+    assert(!tracker.takeStallWarning(origin + 11999ms, 12s));
+    tracker.enter("identity", origin + 5ms);
+    tracker.enter("calibration", origin + 1250ms);
+    assert(tracker.phase() == "calibration");
+    assert(trace.str() ==
+           "Startup phase: identity (+5 ms)\nStartup phase: calibration (+1250 ms)\n");
+    const auto stall = tracker.takeStallWarning(origin + 12500ms, 12s);
+    assert(stall && tracker.stallReported());
+    assert(stall->find("'calibration'") != std::string::npos);
+    assert(stall->find("after 12500 ms") != std::string::npos);
+    assert(stall->find("+1250 ms") != std::string::npos);
+    assert(!tracker.takeStallWarning(origin + 20s, 12s));
+    tracker.markReady(origin + 21s);
+    assert(tracker.ready() && tracker.phase() == "ready");
+    assert(trace.str().ends_with("Startup phase: ready (+21000 ms)\n"));
+
+    std::ostringstream readyTrace;
+    asb::cli::StartupPhaseTracker readyInTime(readyTrace, origin);
+    readyInTime.enter("isolation", origin + 2s);
+    readyInTime.markReady(origin + 3s);
+    assert(!readyInTime.takeStallWarning(origin + 13s, 12s));
+    assert(!readyInTime.stallReported());
+
+    std::ostringstream stuckTrace;
+    std::ostringstream stuckWarnings;
+    asb::cli::StartupPhaseTracker stuck(stuckTrace, StartupClock::now());
+    stuck.enter("identity");
+    {
+        asb::cli::StartupStallWatchdog watchdog(stuck, stuckWarnings, 20ms);
+        const auto deadline = StartupClock::now() + 5s;
+        while (!stuck.stallReported() && StartupClock::now() < deadline) {
+            std::this_thread::sleep_for(5ms);
+        }
+    }
+    assert(stuck.stallReported());
+    assert(occurrences(stuckWarnings.str(), "Warning:") == 1);
+    assert(stuckWarnings.str().find("'identity'") != std::string::npos);
+    assert(stuckTrace.str().starts_with("Startup phase: identity (+"));
+    assert(occurrences(stuckTrace.str(), "\n") == 1);
+
+    std::ostringstream quickTrace;
+    std::ostringstream quickWarnings;
+    asb::cli::StartupPhaseTracker quick(quickTrace, StartupClock::now());
+    {
+        asb::cli::StartupStallWatchdog watchdog(quick, quickWarnings, 50ms);
+        quick.markReady();
+        std::this_thread::sleep_for(150ms);
+    }
+    assert(quickWarnings.str().empty() && !quick.stallReported());
+
+    std::ostringstream idleTrace;
+    std::ostringstream idleWarnings;
+    asb::cli::StartupPhaseTracker idle(idleTrace, StartupClock::now());
+    const auto stopStartedAt = StartupClock::now();
+    {
+        asb::cli::StartupStallWatchdog watchdog(idle, idleWarnings, 60s);
+        watchdog.stop();
+    }
+    assert(StartupClock::now() - stopStartedAt < 5s);
+    assert(idleWarnings.str().empty() && !idle.stallReported());
     return 0;
 }

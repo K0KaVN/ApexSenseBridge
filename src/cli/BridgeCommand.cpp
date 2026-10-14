@@ -56,11 +56,15 @@ int commandBridgeTriggers(int argc, char** argv) {
         return 1;
     }
 
+    StartupPhaseTracker startup(std::cout, initializationStartedAt);
+    StartupStallWatchdog startupWatchdog(startup, std::cerr, std::chrono::seconds(12));
+
     auto globalSessionStop = asb::platform::createGlobalSessionStop(error);
     if (!globalSessionStop) {
         std::cerr << "Bridge session ownership failed: " << error << '\n';
         return 13;
     }
+    startup.enter("recovery");
 
     // A controller can go to sleep while a previous session is isolated. The
     // watchdog normally restores HidHide immediately, but run the idempotent
@@ -102,6 +106,15 @@ int commandBridgeTriggers(int argc, char** argv) {
         }
         return exitCode;
     };
+    const auto startupCancellation = [&startup] {
+        return "Bridge startup was cancelled by a stop request (phase: " + startup.phase() + ").";
+    };
+    const auto cancelStartup = [&] {
+        const std::string message = startupCancellation();
+        std::cout << message << '\n';
+        return failSession(10, message);
+    };
+    startup.enter("identity");
 
     // Windows publishes the APEX container, mapped gamepad and vendor HID
     // collections independently after wake. Give the vendor interface a
@@ -133,6 +146,7 @@ int commandBridgeTriggers(int argc, char** argv) {
         return failSession(2, message);
     }
     if (sessionControl) sessionControl->markProgress(asb::platform::SessionProgress::ControllerVerified);
+    startup.enter("calibration");
     const bool apex5 = device->identity() && device->identity()->isApex5();
     const bool apex4 = device->identity() && device->identity()->isApex4();
     const auto verifiedCalibrationModel = apex4 ? "apex4" : apex5 ? "apex5" : apex6Pro ? "apex6" : "";
@@ -176,6 +190,8 @@ int commandBridgeTriggers(int argc, char** argv) {
         }
     };
 
+    if (stopRequested()) return cancelStartup();
+    startup.enter("controller-snapshot");
     std::optional<asb::flydigi::ProfileStatus> originalProfile;
     std::optional<asb::flydigi::InputTransportStatus> originalInputTransport;
     bool profileSwitchRequired = false;
@@ -258,6 +274,8 @@ int commandBridgeTriggers(int argc, char** argv) {
                   << std::endl;
     }
     std::unique_ptr<asb::TriggerResetGuard> resetOnExit;
+    if (stopRequested()) return cancelStartup();
+    startup.enter("trigger-baseline");
     if (!apex6Pro) {
         if (!device->clearAll(error)) {
             std::cerr << "Could not establish a Normal trigger baseline: " << error << '\n';
@@ -281,6 +299,8 @@ int commandBridgeTriggers(int argc, char** argv) {
         ~AsyncWriteStop() { if (device) device->stopAsyncWrites(); }
     } asyncWriteStop{&*device};
 
+    if (stopRequested()) return cancelStartup();
+    startup.enter("physical-input");
     auto inputSource = asb::platform::openPhysicalInputSource(
         device->info(), options.xinputIndex, error);
     if (!inputSource) {
@@ -313,6 +333,8 @@ int commandBridgeTriggers(int argc, char** argv) {
     tunePhysicalInput(initialInput);
     const auto physicalInputReadyAt = std::chrono::steady_clock::now();
 
+    if (stopRequested()) return cancelStartup();
+    startup.enter("feedback-routing");
     const auto preexistingDualSensePaths = snapshotDualSensePaths();
     asb::platform::VirtualDualSenseAudioEndpointProtection audioProtection;
     std::string audioProtectionError;
@@ -383,9 +405,10 @@ int commandBridgeTriggers(int argc, char** argv) {
     std::future<bool> audioProtectionFuture;
     bool audioProtectionOk = true;
     const auto probeFirmware = [&preexistingDualSensePaths, &audioProtection,
-                                &audioProtectionError, &audioProtectionFuture,
+                                &audioProtectionError, &audioProtectionFuture, &startup,
                                 inspectHapticFormat = apex6Pro && options.routeRumble]
         (std::string& probeError) {
+        startup.enter("firmware-check");
         if (audioProtectionFuture.valid()) {
             const bool previousProtectionOk = audioProtectionFuture.get();
             if (!previousProtectionOk) {
@@ -407,11 +430,14 @@ int commandBridgeTriggers(int argc, char** argv) {
         return readNewVirtualDualSenseFirmware(
             preexistingDualSensePaths, std::chrono::milliseconds(3000), probeError);
     };
-    const auto waitForRemoval = [&preexistingDualSensePaths](std::string& removalError) {
+    const auto waitForRemoval = [&preexistingDualSensePaths, &startup](std::string& removalError) {
+        startup.enter("virtual-dualsense");
         return waitForNewVirtualDualSenseRemoval(
             preexistingDualSensePaths, std::chrono::milliseconds(2000), removalError);
     };
 
+    if (stopRequested()) return cancelStartup();
+    startup.enter("virtual-dualsense");
     asb::dualsense::VirtualDualSenseStartupResult startupResult{};
     if (!asb::dualsense::startVerifiedVirtualDualSense(
             *virtualDualSense, initialInput, feedbackHandler, probeFirmware,
@@ -466,6 +492,11 @@ int commandBridgeTriggers(int argc, char** argv) {
         }
     }
 
+    if (stopRequested()) {
+        virtualDualSense->close();
+        return cancelStartup();
+    }
+    startup.enter("isolation");
     asb::platform::TemporaryPhysicalControllerIsolation physicalIsolation;
     if (sessionControl) sessionControl->markProgress(asb::platform::SessionProgress::VirtualReady);
     if (!physicalIsolation.activate(
@@ -537,6 +568,8 @@ int commandBridgeTriggers(int argc, char** argv) {
         inputTransportRecoveryArmed = true;
         return true;
     };
+    if (stopRequested()) return rollbackFailedProfileStartup(10, startupCancellation());
+    startup.enter("controller-routing");
     const bool inputTransportRefreshRequired =
         apex5 && originalInputTransport &&
         (profileSwitchRequired || !originalInputTransport->controllerData ||
@@ -695,6 +728,7 @@ int commandBridgeTriggers(int argc, char** argv) {
             return validateIndependentTriggerStream(
                 *inputSource, refreshed, std::chrono::milliseconds(1000), restartError);
         };
+    startup.enter("trigger-validation");
     if (apex5 && inputSource->requiresIndependentTriggers()) {
         std::string triggerValidationError;
         if (!validateIndependentTriggerStream(
@@ -722,6 +756,7 @@ int commandBridgeTriggers(int argc, char** argv) {
 
     // Start only after every ordered startup/profile write. On Apex 4 this
     // moves paced feedback off the virtual-controller callback.
+    startup.enter("feedback-start");
     if (!device->startAsyncWrites(error)) {
         virtualDualSense->close();
         return failSession(11, "Could not start the APEX feedback writer: " + error);
@@ -790,6 +825,8 @@ int commandBridgeTriggers(int argc, char** argv) {
             return failSession(13, message);
         }
     }
+    startup.markReady();
+    startupWatchdog.stop();
 
     const auto initializedAt = std::chrono::steady_clock::now();
     const auto initializationMilliseconds =
