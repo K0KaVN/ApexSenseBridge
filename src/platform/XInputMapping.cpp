@@ -1,5 +1,7 @@
 #include "platform/XInputMapping.h"
 
+#include <algorithm>
+
 namespace asb::platform {
 
 namespace {
@@ -16,17 +18,17 @@ void mapCombinedTriggerAxis(std::uint16_t combined,
                             std::uint8_t& leftTrigger,
                             std::uint8_t& rightTrigger) noexcept {
     constexpr std::uint32_t kCenter = 0x8000;
-    constexpr std::uint32_t kPositiveRange = 0x7FFF;
+    constexpr std::uint32_t kCountsPerStep = 128;
+    const auto toTrigger = [](std::uint32_t distance) noexcept {
+        return static_cast<std::uint8_t>(
+            (std::min)((distance + kCountsPerStep / 2) / kCountsPerStep, 255U));
+    };
     leftTrigger = 0;
     rightTrigger = 0;
     if (combined < kCenter) {
-        const auto distance = kCenter - combined;
-        rightTrigger = static_cast<std::uint8_t>(
-            (distance * 255U + kCenter / 2) / kCenter);
+        rightTrigger = toTrigger(kCenter - combined);
     } else if (combined > kCenter) {
-        const auto distance = combined - kCenter;
-        leftTrigger = static_cast<std::uint8_t>(
-            (distance * 255U + kPositiveRange / 2) / kPositiveRange);
+        leftTrigger = toTrigger(combined - kCenter);
     }
 }
 

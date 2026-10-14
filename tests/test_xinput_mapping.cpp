@@ -24,6 +24,23 @@ int main() {
     assert(combinedLeft == 0 && combinedRight == 128);
     platform::mapCombinedTriggerAxis(0xC000, combinedLeft, combinedRight);
     assert(combinedLeft == 128 && combinedRight == 0);
+    platform::mapCombinedTriggerAxis(0xFF80, combinedLeft, combinedRight);
+    assert(combinedLeft == 255 && combinedRight == 0);
+    platform::mapCombinedTriggerAxis(0x0080, combinedLeft, combinedRight);
+    assert(combinedLeft == 0 && combinedRight == 255);
+    for (std::uint32_t value = 0; value <= 255; ++value) {
+        platform::mapCombinedTriggerAxis(
+            static_cast<std::uint16_t>(0x8000 + value * 128), combinedLeft, combinedRight);
+        assert(combinedLeft == value && combinedRight == 0);
+        platform::mapCombinedTriggerAxis(
+            static_cast<std::uint16_t>(0x8000 - value * 128), combinedLeft, combinedRight);
+        assert(combinedLeft == 0 && combinedRight == value);
+    }
+    for (std::uint32_t combined = 0; combined <= 0xFFFF; ++combined) {
+        platform::mapCombinedTriggerAxis(
+            static_cast<std::uint16_t>(combined), combinedLeft, combinedRight);
+        assert(combinedLeft == 0 || combinedRight == 0);
+    }
 
     dualsense::DualSenseInputState state{};
     platform::mapXInputButtons(platform::xinputButton::kBack, 0, 0, state);

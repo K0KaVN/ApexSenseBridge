@@ -45,12 +45,23 @@ struct ProfileStatus {
     bool switchBank = false;
 };
 
+struct TransportFlag {
+    std::uint8_t raw = 0;
+
+    [[nodiscard]] constexpr std::optional<bool> value() const noexcept {
+        if (raw > 1) return std::nullopt;
+        return raw == 1;
+    }
+
+    bool operator==(const TransportFlag&) const = default;
+};
+
 struct InputTransportStatus {
     bool controllerData = true;
     bool rawData = false;
-    bool keyboardData = false;
-    bool mouseData = false;
-    bool thirdPartyControl = false;
+    TransportFlag keyboardData{};
+    TransportFlag mouseData{};
+    TransportFlag thirdPartyControl{};
 };
 
 [[nodiscard]] Report buildForceTrigger(const TriggerEffect& effect, bool apply = true);

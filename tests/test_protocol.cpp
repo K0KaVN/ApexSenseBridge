@@ -7,9 +7,12 @@
 #include "flydigi/Apex5Input.h"
 #include "flydigi/Apex5Protocol.h"
 
+#include <array>
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <span>
 #include <string_view>
 
 int main() {
@@ -191,10 +194,64 @@ int main() {
     const auto transport = parseInputTransportStatus(transportReply);
     assert(transport);
     assert(transport->controllerData && !transport->rawData &&
-           transport->keyboardData && !transport->mouseData &&
-           !transport->thirdPartyControl);
+           transport->keyboardData.value() == true &&
+           transport->mouseData.value() == false &&
+           transport->thirdPartyControl.value() == false);
     transportReply[7] = 2;
     assert(!parseInputTransportStatus(transportReply));
+    transportReply[7] = 0;
+    transportReply[6] = 2;
+    assert(!parseInputTransportStatus(transportReply));
+    transportReply[6] = 0xFF;
+    assert(!parseInputTransportStatus(transportReply));
+
+    const std::array<std::uint8_t, 32> issue47Reply{
+        0x04, 0x5A, 0xA5, 0x10, 0x01, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x16, 0x00};
+    const auto issue47 = parseInputTransportStatus(issue47Reply);
+    assert(issue47);
+    assert(issue47->controllerData && !issue47->rawData);
+    assert(issue47->keyboardData.value() == false);
+    assert(issue47->mouseData.value() == false);
+    assert(!issue47->thirdPartyControl.value());
+    assert(issue47->thirdPartyControl.raw == 0x16);
+
+    auto issue47Readback = issue47Reply;
+    issue47Readback[7] = 1;
+    const auto readback = parseInputTransportStatus(issue47Readback);
+    assert(readback);
+    assert(readback->controllerData && readback->rawData);
+    assert(!readback->thirdPartyControl.value());
+    assert(readback->thirdPartyControl.raw == 0x16);
+    assert(readback->thirdPartyControl == issue47->thirdPartyControl);
+
+    auto unknownKeyboard = issue47Reply;
+    unknownKeyboard[8] = 2;
+    unknownKeyboard[9] = 0xFF;
+    const auto unknownFlags = parseInputTransportStatus(unknownKeyboard);
+    assert(unknownFlags);
+    assert(!unknownFlags->keyboardData.value() && unknownFlags->keyboardData.raw == 2);
+    assert(!unknownFlags->mouseData.value() && unknownFlags->mouseData.raw == 0xFF);
+    assert(unknownFlags->keyboardData != issue47->keyboardData);
+
+    auto knownThirdParty = issue47Reply;
+    knownThirdParty[10] = 1;
+    const auto owned = parseInputTransportStatus(knownThirdParty);
+    assert(owned && owned->thirdPartyControl.value() == true);
+    knownThirdParty[10] = 0;
+    const auto released = parseInputTransportStatus(knownThirdParty);
+    assert(released && released->thirdPartyControl.value() == false);
+
+    auto wrongCommand = issue47Reply;
+    wrongCommand[3] = kCmdProfileStatus;
+    assert(!parseInputTransportStatus(wrongCommand));
+    auto wrongReportId = issue47Reply;
+    wrongReportId[0] = kReportIdOut;
+    assert(!parseInputTransportStatus(wrongReportId));
+    assert(!parseInputTransportStatus(
+        std::span<const std::uint8_t>(issue47Reply).first(10)));
+    assert(parseInputTransportStatus(
+        std::span<const std::uint8_t>(issue47Reply).first(11)));
 
     std::array<std::uint8_t, 32> profileReply{};
     profileReply[0] = kReportIdIn;
@@ -378,6 +435,89 @@ int main() {
     const auto stalePairDropped = composeApex5InputState(canceledMapped, std::nullopt, 74, 2);
     assert(stalePairDropped.l2 == 0 && stalePairDropped.r2 == 0);
     assert(stalePairDropped.buttons == dualsense::button::kCircle);
+
+    using namespace std::chrono_literals;
+    const auto bowMapped = [](std::uint8_t heldL2, std::uint8_t restingR2) {
+        dualsense::DualSenseInputState mapped{};
+        mapped.l2 = static_cast<std::uint8_t>(heldL2 > restingR2 ? heldL2 - restingR2 : 0);
+        mapped.r2 = static_cast<std::uint8_t>(restingR2 > heldL2 ? restingR2 - heldL2 : 0);
+        if (mapped.l2 > 30) mapped.buttons |= dualsense::button::kL2;
+        if (mapped.r2 > 30) mapped.buttons |= dualsense::button::kR2;
+        return mapped;
+    };
+    const auto bowVendor = [&aimVendor](std::uint8_t heldL2, std::uint8_t restingR2) {
+        auto vendor = aimVendor;
+        vendor.l2 = heldL2;
+        vendor.r2 = restingR2;
+        return vendor;
+    };
+
+    Apex5InputComposer hysteresis;
+    const auto restingStart = hysteresis.compose(bowMapped(255, 6), bowVendor(255, 6), 1ms, 74, 2);
+    assert(!hysteresis.independentTriggers());
+    assert(restingStart.l2 == 249 && restingStart.r2 == 0);
+    const std::array<std::uint8_t, 9> restingFinger{10, 6, 10, 9, 5, 7, 10, 4, 6};
+    std::uint8_t oneShotSwitches = 0;
+    bool previousOneShotIndependent = false;
+    for (const auto r2 : restingFinger) {
+        const auto composed = hysteresis.compose(bowMapped(255, r2), bowVendor(255, r2), 1ms, 74, 2);
+        assert(hysteresis.independentTriggers());
+        assert(composed.l2 == 255 && composed.r2 == r2);
+        assert((composed.buttons & dualsense::button::kL2) != 0);
+        assert((composed.buttons & dualsense::button::kR2) == 0);
+        const auto oneShot = composeApex5InputState(bowMapped(255, r2), bowVendor(255, r2), 74, 2);
+        const bool oneShotIndependent = oneShot.l2 == 255;
+        if (oneShotIndependent != previousOneShotIndependent) ++oneShotSwitches;
+        previousOneShotIndependent = oneShotIndependent;
+    }
+    assert(hysteresis.triggerSourceSwitches() == 1);
+    assert(oneShotSwitches > 4);
+    const auto restingReleased = hysteresis.compose(bowMapped(255, 3), bowVendor(255, 3), 1ms, 74, 2);
+    assert(!hysteresis.independentTriggers());
+    assert(restingReleased.l2 == 252 && restingReleased.r2 == 0);
+    const auto restingAgain = hysteresis.compose(bowMapped(255, 7), bowVendor(255, 7), 1ms, 74, 2);
+    assert(!hysteresis.independentTriggers());
+    assert(restingAgain.l2 == 248 && restingAgain.r2 == 0);
+    const auto rtReleased = hysteresis.compose(bowMapped(255, 0), bowVendor(255, 0), 1ms, 74, 2);
+    assert(rtReleased.l2 == 255 && rtReleased.r2 == 0);
+    assert(hysteresis.triggerSourceSwitches() == 2);
+    const auto drawn = hysteresis.compose(bowMapped(255, 200), bowVendor(255, 200), 1ms, 74, 2);
+    assert(hysteresis.independentTriggers());
+    assert(drawn.l2 == 255 && drawn.r2 == 200);
+    assert((drawn.buttons & dualsense::button::kR2) != 0);
+    const auto fired = hysteresis.compose(bowMapped(255, 0), bowVendor(255, 0), 1ms, 74, 2);
+    assert(!hysteresis.independentTriggers());
+    assert(fired.l2 == 255 && fired.r2 == 0);
+    assert((fired.buttons & dualsense::button::kR2) == 0);
+    assert(hysteresis.triggerSourceSwitches() == 4);
+
+    Apex5InputComposer staleVendor;
+    const auto bothHeld = staleVendor.compose(bowMapped(230, 220), bowVendor(230, 220), 2ms, 74, 2);
+    assert(staleVendor.independentTriggers());
+    assert(bothHeld.l2 == 230 && bothHeld.r2 == 220);
+    const auto stalledButConfirmed =
+        staleVendor.compose(bowMapped(230, 220), bowVendor(230, 220), 120ms, 74, 2);
+    assert(staleVendor.independentTriggers());
+    assert(stalledButConfirmed.l2 == 230 && stalledButConfirmed.r2 == 220);
+    const auto rtReleasedDuringStall =
+        staleVendor.compose(bowMapped(230, 0), bowVendor(230, 220), 130ms, 74, 2);
+    assert(!staleVendor.independentTriggers());
+    assert(rtReleasedDuringStall.l2 == 230 && rtReleasedDuringStall.r2 == 0);
+    assert((rtReleasedDuringStall.buttons & dualsense::button::kR2) == 0);
+    assert(rtReleasedDuringStall.gyroX == aimVendor.gyroX);
+    assert((rtReleasedDuringStall.buttons & dualsense::button::kPs) != 0);
+    const auto staleCannotEngage =
+        staleVendor.compose(bowMapped(230, 220), bowVendor(230, 220), 51ms, 74, 2);
+    assert(!staleVendor.independentTriggers());
+    assert(staleCannotEngage.l2 == 10 && staleCannotEngage.r2 == 0);
+    const auto freshAtBound =
+        staleVendor.compose(bowMapped(230, 220), bowVendor(230, 220), 50ms, 74, 2);
+    assert(staleVendor.independentTriggers());
+    assert(freshAtBound.l2 == 230 && freshAtBound.r2 == 220);
+    const auto vendorLost = staleVendor.compose(bowMapped(230, 220), std::nullopt, 300ms, 74, 2);
+    assert(!staleVendor.independentTriggers());
+    assert(vendorLost.l2 == 10 && vendorLost.r2 == 0);
+    assert(staleVendor.triggerSourceSwitches() == 4);
 
     assert(!decodeApex5InputReport(
         std::span<const std::uint8_t>(apex5Input.data(), 29)));

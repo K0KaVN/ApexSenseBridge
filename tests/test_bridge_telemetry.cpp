@@ -26,6 +26,10 @@ int main() {
     telemetry.virtualStats.triggerReports = 12;
     telemetry.physicalStats.reports = 21;
     telemetry.physicalStats.vendorReports = 22;
+    telemetry.physicalStats.triggerSourceSwitches = 23;
+    telemetry.physicalStats.vendorMaximumGapMs = 64;
+    telemetry.physicalStats.activity.r2Oscillations = 24;
+    telemetry.physicalStats.activity.bouncedButtons = 0x0420;
     telemetry.inputBackend = "hid\\vendor";
     telemetry.independentTriggerStartupRecoveries = 1;
     telemetry.independentTriggerRuntimeRecoveries = 1;
@@ -66,6 +70,10 @@ int main() {
     assert(json.find(",\n}\n") == std::string::npos);
     assert(json.find("\"independent_trigger_startup_recoveries\": 1") != std::string::npos);
     assert(json.find("\"independent_trigger_runtime_recoveries\": 1") != std::string::npos);
+    assert(json.find("\"physical_trigger_source_switches\": 23,") != std::string::npos);
+    assert(json.find("\"physical_vendor_max_gap_ms\": 64,") != std::string::npos);
+    assert(json.find("\"physical_r2_oscillations\": 24,") != std::string::npos);
+    assert(json.find("\"physical_bounced_buttons\": 1056,") != std::string::npos);
 
     constexpr std::array requiredKeys{
         "schema", "virtual_backend", "input_mode", "input_backend",
@@ -81,7 +89,13 @@ int main() {
         "physical_report_rate_hz", "virtual_report_rate_hz", "physical_reports",
         "physical_vendor_reports", "physical_vendor_states",
         "physical_vendor_parse_failures", "physical_vendor_read_failures",
-        "forwarded_physical_reports", "keepalive_reports", "lost_reports",
+        "physical_vendor_max_gap_ms", "physical_vendor_stale_trigger_gaps",
+        "physical_trigger_source_switches", "physical_changes_sticks",
+        "physical_changes_l2", "physical_changes_r2", "physical_changes_buttons",
+        "physical_changes_dpad", "physical_changes_imu", "physical_l2_oscillations",
+        "physical_r2_oscillations", "physical_button_bounces",
+        "physical_trigger_button_bounces", "physical_bounced_buttons",
+        "physical_bounced_dpad", "forwarded_physical_reports", "keepalive_reports", "lost_reports",
         "coalesced_reports", "maximum_simultaneous_triggers",
         "simultaneous_trigger_reports", "virtual_maximum_simultaneous_triggers",
         "virtual_simultaneous_trigger_reports", "battery_percent", "charge_state",

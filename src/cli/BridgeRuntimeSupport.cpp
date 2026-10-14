@@ -1,6 +1,7 @@
 #include "cli/BridgeRuntimeSupport.h"
 
 #include <algorithm>
+#include <sstream>
 #include <thread>
 
 #ifdef _WIN32
@@ -50,6 +51,10 @@ void accumulatePhysicalInputStats(asb::platform::PhysicalInputSourceStats& total
     total.vendorStates += added.vendorStates;
     total.vendorParseFailures += added.vendorParseFailures;
     total.vendorReadFailures += added.vendorReadFailures;
+    total.triggerSourceSwitches += added.triggerSourceSwitches;
+    total.vendorMaximumGapMs = (std::max)(total.vendorMaximumGapMs, added.vendorMaximumGapMs);
+    total.vendorStaleTriggerGaps += added.vendorStaleTriggerGaps;
+    asb::platform::accumulatePhysicalInputActivity(total.activity, added.activity);
 }
 
 ProcessUsageSnapshot processUsageSnapshot() noexcept {
@@ -123,6 +128,97 @@ bool waitForPhysicalControlsReleased(
         }
     }
     return false;
+}
+
+void configureEngineOutput(std::ostream& stream) {
+    stream << std::unitbuf;
+}
+
+namespace {
+
+long long elapsedMilliseconds(StartupPhaseTracker::Clock::duration duration) noexcept {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+}
+
+}
+
+void StartupPhaseTracker::enter(std::string_view phase, Clock::time_point now) {
+    const std::lock_guard lock(mutex_);
+    record(phase, now);
+}
+
+void StartupPhaseTracker::markReady(Clock::time_point now) {
+    const std::lock_guard lock(mutex_);
+    ready_ = true;
+    record("ready", now);
+}
+
+void StartupPhaseTracker::record(std::string_view phase, Clock::time_point now) {
+    phase_ = phase;
+    phaseStartedAt_ = now;
+    std::ostringstream line;
+    line << "Startup phase: " << phase << " (+" << elapsedMilliseconds(now - startedAt_)
+         << " ms)\n";
+    trace_ << line.str();
+}
+
+std::optional<std::string> StartupPhaseTracker::takeStallWarning(
+    Clock::time_point now, Clock::duration threshold) {
+    const std::lock_guard lock(mutex_);
+    if (ready_ || stallReported_ || now - startedAt_ < threshold) return std::nullopt;
+    stallReported_ = true;
+    std::ostringstream warning;
+    warning << "Warning: bridge startup is still in phase '" << phase_ << "' after "
+            << elapsedMilliseconds(now - startedAt_) << " ms (phase entered at +"
+            << elapsedMilliseconds(phaseStartedAt_ - startedAt_) << " ms).\n";
+    return warning.str();
+}
+
+std::string StartupPhaseTracker::phase() const {
+    const std::lock_guard lock(mutex_);
+    return phase_;
+}
+
+bool StartupPhaseTracker::ready() const {
+    const std::lock_guard lock(mutex_);
+    return ready_;
+}
+
+bool StartupPhaseTracker::stallReported() const {
+    const std::lock_guard lock(mutex_);
+    return stallReported_;
+}
+
+StartupStallWatchdog::StartupStallWatchdog(StartupPhaseTracker& tracker,
+                                           std::ostream& warnings,
+                                           std::chrono::milliseconds threshold)
+    : tracker_(tracker), warnings_(warnings) {
+    thread_ = std::thread([this, threshold] {
+        {
+            std::unique_lock lock(mutex_);
+            if (wake_.wait_until(lock, tracker_.startedAt() + threshold,
+                                 [this] { return stopping_; })) {
+                return;
+            }
+        }
+        if (const auto warning = tracker_.takeStallWarning(
+                StartupPhaseTracker::Clock::now(), threshold)) {
+            warnings_ << *warning << std::flush;
+        }
+    });
+}
+
+StartupStallWatchdog::~StartupStallWatchdog() {
+    stop();
+}
+
+void StartupStallWatchdog::stop() noexcept {
+    {
+        const std::lock_guard lock(mutex_);
+        stopping_ = true;
+    }
+    wake_.notify_all();
+    if (thread_.joinable()) thread_.join();
 }
 
 } // namespace asb::cli

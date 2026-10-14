@@ -19,6 +19,7 @@
 #include "platform/HidTransport.h"
 #include "platform/XInputGamepad.h"
 #include "platform/XInputMapping.h"
+#include "platform/windows/WindowsOverlappedIo.h"
 
 #include <algorithm>
 #include <array>
@@ -200,14 +201,11 @@ public:
 
     ~HidPhysicalInputSource() override {
         if (handle_ != INVALID_HANDLE_VALUE) {
-            if (readPending_) {
-                CancelIoEx(handle_, &overlapped_);
-                DWORD ignored = 0;
-                (void)GetOverlappedResult(handle_, &overlapped_, &ignored, TRUE);
+            if (readPending_ && !cancelOverlappedIo(handle_, overlapped_)) {
+                (void)io_.release();
             }
             CloseHandle(handle_);
         }
-        if (event_) CloseHandle(event_);
         if (preparsed_) HidD_FreePreparsedData(preparsed_);
     }
 
@@ -284,10 +282,8 @@ private:
     HidPhysicalInputSource(HidDeviceInfo info, HANDLE handle,
                            PHIDP_PREPARSED_DATA preparsed, HIDP_CAPS caps)
         : info_(std::move(info)), handle_(handle), preparsed_(preparsed), caps_(caps),
-          report_(caps.InputReportByteLength, 0) {
-        event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        overlapped_.hEvent = event_;
-    }
+          io_(std::make_unique<OverlappedIo>(caps.InputReportByteLength)),
+          event_(io_->event), overlapped_(io_->overlapped), report_(io_->buffer) {}
 
     bool loadCapabilities(std::string& error) {
         if (!event_) {
@@ -515,10 +511,11 @@ private:
     HANDLE handle_ = INVALID_HANDLE_VALUE;
     PHIDP_PREPARSED_DATA preparsed_ = nullptr;
     HIDP_CAPS caps_{};
-    HANDLE event_ = nullptr;
-    OVERLAPPED overlapped_{};
+    std::unique_ptr<OverlappedIo> io_;
+    HANDLE event_;
+    OVERLAPPED& overlapped_;
     bool readPending_ = false;
-    std::vector<std::uint8_t> report_;
+    std::vector<std::uint8_t>& report_;
     std::vector<HIDP_VALUE_CAPS> valueCaps_;
     std::vector<HIDP_BUTTON_CAPS> buttonCaps_;
     bool combinedTriggerAxis_ = false;
@@ -651,14 +648,11 @@ public:
 
     ~Apex4PhysicalInputSource() override {
         if (handle_ != INVALID_HANDLE_VALUE) {
-            if (readPending_) {
-                CancelIoEx(handle_, &overlapped_);
-                DWORD ignored = 0;
-                (void)GetOverlappedResult(handle_, &overlapped_, &ignored, TRUE);
+            if (readPending_ && !cancelOverlappedIo(handle_, overlapped_)) {
+                (void)io_.release();
             }
             CloseHandle(handle_);
         }
-        if (event_) CloseHandle(event_);
     }
 
     PhysicalInputStatus waitForState(
@@ -734,10 +728,8 @@ public:
 
 private:
     Apex4PhysicalInputSource(const HidDeviceInfo& info, HANDLE handle)
-        : handle_(handle), report_(info.inputReportLength, 0) {
-        event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        overlapped_.hEvent = event_;
-    }
+        : handle_(handle), io_(std::make_unique<OverlappedIo>(info.inputReportLength)),
+          event_(io_->event), overlapped_(io_->overlapped), report_(io_->buffer) {}
 
     bool ensureReadPending(std::string& error) {
         if (readPending_) return true;
@@ -760,10 +752,11 @@ private:
     }
 
     HANDLE handle_ = INVALID_HANDLE_VALUE;
-    HANDLE event_ = nullptr;
-    OVERLAPPED overlapped_{};
+    std::unique_ptr<OverlappedIo> io_;
+    HANDLE event_;
+    OVERLAPPED& overlapped_;
     bool readPending_ = false;
-    std::vector<std::uint8_t> report_;
+    std::vector<std::uint8_t>& report_;
     PhysicalInputSourceStats stats_{};
     std::atomic<std::uint8_t> currentBatteryPercent_{100};
     std::atomic<std::uint8_t> currentChargeState_{0};
@@ -824,14 +817,11 @@ public:
 
     ~Apex5DualHidPhysicalInputSource() override {
         if (handle_ != INVALID_HANDLE_VALUE) {
-            if (readPending_) {
-                CancelIoEx(handle_, &overlapped_);
-                DWORD ignored = 0;
-                (void)GetOverlappedResult(handle_, &overlapped_, &ignored, TRUE);
+            if (readPending_ && !cancelOverlappedIo(handle_, overlapped_)) {
+                (void)io_.release();
             }
             CloseHandle(handle_);
         }
-        if (event_) CloseHandle(event_);
     }
 
     PhysicalInputStatus waitForState(
@@ -903,7 +893,7 @@ public:
                 return PhysicalInputStatus::State;
             }
 
-            const bool decodedVendorState = consumeVendorReport();
+            bool decodedVendorState = consumeVendorReport();
             if (!vendorUnavailable_) {
                 std::string pendingError;
                 if (!ensureReadPending(pendingError)) {
@@ -911,6 +901,7 @@ public:
                     ++vendorReadFailures_;
                 }
             }
+            if (drainVendorReports()) decodedVendorState = true;
             if (decodedVendorState && xinputFallbackActive_) {
                 if (pollXInputFallback(state)) {
                     ++stats_.reports;
@@ -945,6 +936,10 @@ public:
         result.vendorStates = vendorStates_;
         result.vendorParseFailures = vendorParseFailures_;
         result.vendorReadFailures = vendorReadFailures_;
+        result.triggerSourceSwitches = composer_.triggerSourceSwitches();
+        result.vendorMaximumGapMs = vendorGaps_.maximumGapMilliseconds();
+        result.vendorStaleTriggerGaps = vendorGaps_.staleGaps();
+        result.activity = activity_.stats();
         return result;
     }
     bool requiresIndependentTriggers() const noexcept override {
@@ -964,12 +959,10 @@ private:
         const HidDeviceInfo& info, HANDLE handle,
         std::unique_ptr<HidPhysicalInputSource> mappedGamepad,
         std::unique_ptr<XInputGamepad> xinputGamepad)
-        : handle_(handle), report_(info.inputReportLength, 0),
+        : handle_(handle), io_(std::make_unique<OverlappedIo>(info.inputReportLength)),
+          event_(io_->event), overlapped_(io_->overlapped), report_(io_->buffer),
           mappedGamepad_(std::move(mappedGamepad)),
-          xinputGamepad_(std::move(xinputGamepad)) {
-        event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        overlapped_.hEvent = event_;
-    }
+          xinputGamepad_(std::move(xinputGamepad)) {}
 
     bool ensureReadPending(std::string& error) {
         if (readPending_) return true;
@@ -1032,43 +1025,53 @@ private:
             ++vendorParseFailures_;
             return false;
         }
+        const auto decodedAt = std::chrono::steady_clock::now();
         lastVendorState_ = *decoded;
-        independentTriggerFreshness_.observe();
+        lastVendorStateAt_ = decodedAt;
+        independentTriggerFreshness_.observe(decodedAt);
+        vendorGaps_.observe(decodedAt);
         ++vendorStates_;
         return true;
     }
 
-    void drainVendorReports() noexcept {
-        if (vendorUnavailable_) return;
-        constexpr unsigned int kMaximumReportsPerMappedState = 8;
-        for (unsigned int drained = 0; drained < kMaximumReportsPerMappedState;
-             ++drained) {
+    bool drainVendorReports() noexcept {
+        if (vendorUnavailable_) return false;
+        constexpr unsigned int kMaximumDrainedReports = 64;
+        bool decoded = false;
+        for (unsigned int drained = 0; drained < kMaximumDrainedReports; ++drained) {
             const DWORD waitResult = WaitForSingleObject(event_, 0);
-            if (waitResult == WAIT_TIMEOUT) return;
+            if (waitResult == WAIT_TIMEOUT) return decoded;
             if (waitResult != WAIT_OBJECT_0) {
                 vendorUnavailable_ = true;
                 ++vendorReadFailures_;
-                return;
+                return decoded;
             }
-            (void)consumeVendorReport();
-            if (vendorUnavailable_) return;
+            if (consumeVendorReport()) decoded = true;
+            if (vendorUnavailable_) return decoded;
 
             std::string pendingError;
             if (!ensureReadPending(pendingError)) {
                 vendorUnavailable_ = true;
                 ++vendorReadFailures_;
-                return;
+                return decoded;
             }
         }
+        return decoded;
     }
 
-    void composeState(dualsense::DualSenseInputState& state) const noexcept {
+    void composeState(dualsense::DualSenseInputState& state) noexcept {
         // Motion remains valid when standard controls bootstrap through XInput.
         // independentTriggersReady() also requires mapped HID, which may never
         // report in this mode and must not suppress a healthy IMU stream.
-        const bool vendorReady = !vendorUnavailable_ && independentTriggerFreshness_.ready();
-        state = flydigi::composeApex5InputState(
-            *lastMappedState_, independentTriggersReady() ? lastVendorState_ : std::nullopt,
+        const auto now = std::chrono::steady_clock::now();
+        const bool vendorReady = !vendorUnavailable_ && independentTriggerFreshness_.ready(now);
+        const auto vendorTriggerAge = lastVendorStateAt_
+            ? now - *lastVendorStateAt_
+            : std::chrono::steady_clock::duration::max();
+        state = composer_.compose(
+            *lastMappedState_,
+            mappedInputObserved_ && vendorReady ? lastVendorState_ : std::nullopt,
+            vendorTriggerAge,
             currentBatteryPercent_.load(std::memory_order_relaxed),
             currentChargeState_.load(std::memory_order_relaxed));
         if (vendorReady && lastVendorState_) {
@@ -1079,6 +1082,7 @@ private:
             state.accelY = lastVendorState_->accelY;
             state.accelZ = lastVendorState_->accelZ;
         }
+        activity_.observe(state, now);
     }
 
     bool pollXInputFallback(dualsense::DualSenseInputState& state) noexcept {
@@ -1098,12 +1102,17 @@ private:
     }
 
     HANDLE handle_ = INVALID_HANDLE_VALUE;
-    HANDLE event_ = nullptr;
-    OVERLAPPED overlapped_{};
+    std::unique_ptr<OverlappedIo> io_;
+    HANDLE event_;
+    OVERLAPPED& overlapped_;
     bool readPending_ = false;
-    std::vector<std::uint8_t> report_;
+    std::vector<std::uint8_t>& report_;
     std::optional<dualsense::DualSenseInputState> lastVendorState_;
+    std::optional<std::chrono::steady_clock::time_point> lastVendorStateAt_;
     IndependentTriggerStreamFreshness independentTriggerFreshness_;
+    flydigi::Apex5InputComposer composer_;
+    PhysicalInputActivityTracker activity_;
+    VendorStreamGapTracker vendorGaps_{flydigi::Apex5InputComposer::kTriggerFreshness};
     std::uint64_t vendorReports_ = 0;
     std::uint64_t vendorStates_ = 0;
     std::uint64_t vendorParseFailures_ = 0;

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 
 namespace asb::flydigi {
@@ -102,17 +103,42 @@ dualsense::DualSenseInputState composeApex5InputState(
     const std::optional<dualsense::DualSenseInputState>& vendorState,
     std::uint8_t batteryPercent,
     std::uint8_t chargeState) noexcept {
-    // The mapped axis cancels LT against RT from the first millimetres of travel.
-    constexpr std::uint8_t kSimultaneousTriggerFloor = 8;
+    Apex5InputComposer composer;
+    return composer.compose(mappedState, vendorState,
+                            Apex5InputComposer::Clock::duration::zero(),
+                            batteryPercent, chargeState);
+}
+
+dualsense::DualSenseInputState Apex5InputComposer::compose(
+    const dualsense::DualSenseInputState& mappedState,
+    const std::optional<dualsense::DualSenseInputState>& vendorState,
+    Clock::duration vendorTriggerAge,
+    std::uint8_t batteryPercent,
+    std::uint8_t chargeState) noexcept {
     auto state = vendorState.value_or(mappedState);
     mergeApex5MappedControls(state, mappedState);
-    if (vendorState &&
-        vendorState->l2 > kSimultaneousTriggerFloor &&
-        vendorState->r2 > kSimultaneousTriggerFloor) {
-        // The NewXInput 0xEF report exposes independent LT/RT bytes in both
-        // Desktop and Xbox FSE. Use it only to recover a simultaneous press,
-        // preserving Space Station's mapped-HID behavior for either trigger
-        // used alone.
+    bool independent = false;
+    if (vendorState) {
+        const bool fresh = vendorTriggerAge <= kTriggerFreshness;
+        if (independent_) {
+            const int mappedBalance = static_cast<int>(mappedState.l2) - mappedState.r2;
+            const int vendorBalance = static_cast<int>(vendorState->l2) - vendorState->r2;
+            const bool confirmed = fresh ||
+                std::abs(mappedBalance - vendorBalance) <= kStaleTriggerAgreement;
+            independent = confirmed &&
+                vendorState->l2 >= kIndependentReleaseFloor &&
+                vendorState->r2 >= kIndependentReleaseFloor;
+        } else {
+            independent = fresh &&
+                vendorState->l2 > kIndependentEngageFloor &&
+                vendorState->r2 > kIndependentEngageFloor;
+        }
+    }
+    if (independent != independent_) {
+        independent_ = independent;
+        ++switches_;
+    }
+    if (independent_) {
         platform::mergeIndependentTriggers(
             vendorState->l2, vendorState->r2, state);
     }

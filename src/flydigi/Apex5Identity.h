@@ -6,6 +6,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace asb::flydigi {
 
@@ -35,6 +36,7 @@ public:
             ? connectionType_ == 0
             : connectionType_ == 1;
     }
+    [[nodiscard]] std::string_view connectionName() const noexcept;
     [[nodiscard]] bool isApex4() const noexcept {
         return protocol_ == ApexProtocol::LegacyV1 && isApex4DeviceType(deviceType_);
     }

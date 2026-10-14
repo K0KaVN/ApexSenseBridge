@@ -624,7 +624,7 @@
                                         </Grid>
 
                                         <!-- APEX profile: D-pad left/right -->
-                                        <Border CornerRadius="26" Height="52" Background="#12FFFFFF" Padding="8" Margin="0,0,0,10"
+                                        <Border x:Name="PnlApexProfile" CornerRadius="26" Height="52" Background="#12FFFFFF" Padding="8" Margin="0,0,0,10"
                                                 ToolTip="{DynamicResource Loc_ApexProfileHint}">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
@@ -646,6 +646,9 @@
                                                 </Button>
                                             </Grid>
                                         </Border>
+                                        <TextBlock x:Name="TxtApexProfileLocked" Text="{DynamicResource Loc_ApexProfileApex5Only}"
+                                                   Visibility="Collapsed" TextWrapping="Wrap" FontSize="11" Foreground="#FBBF24"
+                                                   Margin="12,-4,12,10"/>
 
                                         <Button x:Name="BtnDetailToggleExclude" Style="{StaticResource BtnSecondary}"
                                                 MinHeight="42" Padding="14,0" HorizontalAlignment="Stretch" Margin="0,0,0,10"

@@ -93,7 +93,8 @@ namespace ApexSenseBridgeTray.Services
             }
             StateChanged?.Invoke();
             bool success = false;
-            try { success = StartSessionCore(game, profile, settings, slot, true, out error); return success; }
+            int exitCode;
+            try { success = StartSessionCore(game, profile, settings, slot, true, out error, out exitCode); return success; }
             finally { lock (syncLock) { if (recovery.Resuming) recovery.Complete(success); } StateChanged?.Invoke(); }
         }
 
@@ -192,6 +193,17 @@ namespace ApexSenseBridgeTray.Services
             }
         }
 
+        public bool IsBusy
+        {
+            get
+            {
+                lock (syncLock)
+                {
+                    return isStarting || isStopping;
+                }
+            }
+        }
+
         public bool IsSessionHealthy
         {
             get
@@ -239,13 +251,22 @@ namespace ApexSenseBridgeTray.Services
         public bool StartSession(string gameTitle, string profileName, TraySettings settings,
                                  int apexProfileSlot, out string error)
         {
-            return StartSessionCore(gameTitle, profileName, settings, apexProfileSlot, false, out error);
+            int exitCode;
+            return StartSession(gameTitle, profileName, settings, apexProfileSlot, out error, out exitCode);
+        }
+
+        public bool StartSession(string gameTitle, string profileName, TraySettings settings,
+                                 int apexProfileSlot, out string error, out int exitCode)
+        {
+            return StartSessionCore(gameTitle, profileName, settings, apexProfileSlot, false, out error, out exitCode);
         }
 
         private bool StartSessionCore(string gameTitle, string profileName, TraySettings settings,
-                                 int apexProfileSlot, bool resuming, out string error)
+                                 int apexProfileSlot, bool resuming, out string error, out int exitCode)
         {
             error = null;
+            exitCode = 0;
+            int engineExitCode = 0;
 
             lock (syncLock)
             {
@@ -300,11 +321,13 @@ namespace ApexSenseBridgeTray.Services
                     err => RaiseLogMessage("[ERROR] " + err),
                     out error, gameTitle, activeProfile, sessionDiscoveryName, progressChanged: state =>
                     {
+                        if (state.Phase == SessionPhase.Failed) engineExitCode = state.ExitCode;
                         lock (syncLock) recovery.Observe(state.Stages);
                     });
 
                 if (session == null)
                 {
+                    exitCode = engineExitCode;
                     RaiseSessionError(error ?? "Échec du démarrage du bridge.");
                     return false;
                 }

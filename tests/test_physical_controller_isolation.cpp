@@ -5,6 +5,7 @@
 #include "platform/PhysicalControllerIsolation.h"
 
 #include <cassert>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -112,6 +113,144 @@ int main() {
     assert(!matchesApexProfileRecoveryDevice(
         apex, L"\\\\?\\hid#old-path", L"{11223344-5566-7788-99AA-BBCCDDEEFF00}",
         0x37D7, 0x2501, 0xFF00));
+
+    using asb::platform::detail::ApexRestoreTarget;
+    using asb::platform::detail::ApexSettingsRestore;
+    using asb::platform::detail::deferredApexRestoreBlocksSession;
+    using asb::platform::detail::kDeferredApexRestoreRegistryKey;
+    using asb::platform::detail::kRecoveryRegistryKey;
+    using asb::platform::detail::locateApexRestoreTarget;
+    using asb::platform::detail::mergeDeferredApexRestore;
+
+    asb::HidDeviceInfo receiver{};
+    receiver.path = L"\\\\?\\hid#vid_37d7&pid_2501&mi_02#receiver";
+    receiver.containerId = L"{AAAAAAAA-0000-0000-0000-000000000001}";
+    receiver.vendorId = 0x37D7;
+    receiver.productId = 0x2501;
+    receiver.usagePage = 0xFFA0;
+    asb::HidDeviceInfo cable = receiver;
+    cable.path = L"\\\\?\\hid#vid_37d7&pid_2503&mi_02#cable";
+    cable.containerId = L"{BBBBBBBB-0000-0000-0000-000000000002}";
+    cable.productId = 0x2503;
+    asb::HidDeviceInfo apex6 = receiver;
+    apex6.path = L"\\\\?\\hid#vid_37d7&pid_2502&mi_02#apex6";
+    apex6.containerId = L"{CCCCCCCC-0000-0000-0000-000000000003}";
+    apex6.productId = 0x2502;
+
+    ApexSettingsRestore legacy{};
+    legacy.vendorPath = receiver.path;
+    legacy.containerId = receiver.containerId;
+    legacy.vendorId = receiver.vendorId;
+    legacy.productId = receiver.productId;
+    legacy.usagePage = receiver.usagePage;
+    legacy.profilePending = true;
+    legacy.profileSlot = 2;
+    legacy.inputTransportPending = true;
+    legacy.controllerData = false;
+    legacy.rawData = true;
+
+    assert(locateApexRestoreTarget(legacy, {}, false) == ApexRestoreTarget::Absent);
+    assert(locateApexRestoreTarget(legacy, {cable, apex6}, false) ==
+           ApexRestoreTarget::Absent);
+    assert(locateApexRestoreTarget(legacy, {}, true) == ApexRestoreTarget::Unknown);
+    assert(locateApexRestoreTarget(legacy, {apex6, receiver}, false) ==
+           ApexRestoreTarget::Present);
+    assert(locateApexRestoreTarget(legacy, {receiver}, true) ==
+           ApexRestoreTarget::Present);
+    asb::HidDeviceInfo replugged = receiver;
+    replugged.path = L"\\\\?\\hid#vid_37d7&pid_2501&mi_02#new-instance";
+    assert(locateApexRestoreTarget(legacy, {replugged}, false) ==
+           ApexRestoreTarget::Present);
+
+    std::optional<ApexSettingsRestore> deferred;
+    assert(mergeDeferredApexRestore(deferred, legacy));
+    assert(deferred && deferred->vendorPath == legacy.vendorPath &&
+           deferred->profilePending && deferred->profileSlot == 2 &&
+           deferred->inputTransportPending && !deferred->controllerData &&
+           deferred->rawData);
+
+    assert(!deferredApexRestoreBlocksSession(*deferred, apex6));
+    assert(!deferredApexRestoreBlocksSession(*deferred, cable));
+    assert(deferredApexRestoreBlocksSession(*deferred, receiver));
+    assert(deferredApexRestoreBlocksSession(*deferred, replugged));
+
+    ApexSettingsRestore later = legacy;
+    later.profileSlot = 3;
+    later.controllerData = true;
+    later.rawData = false;
+    assert(mergeDeferredApexRestore(deferred, later));
+    assert(deferred->profileSlot == 2 && !deferred->controllerData &&
+           deferred->rawData);
+
+    ApexSettingsRestore otherConnection = later;
+    otherConnection.vendorPath = cable.path;
+    otherConnection.containerId = cable.containerId;
+    otherConnection.productId = cable.productId;
+    assert(!mergeDeferredApexRestore(deferred, otherConnection));
+    assert(deferred->vendorPath == legacy.vendorPath && deferred->profileSlot == 2);
+
+    ApexSettingsRestore profileOnly = legacy;
+    profileOnly.inputTransportPending = false;
+    std::optional<ApexSettingsRestore> partial = profileOnly;
+    ApexSettingsRestore transportOnly = legacy;
+    transportOnly.profilePending = false;
+    transportOnly.controllerData = true;
+    transportOnly.rawData = true;
+    assert(mergeDeferredApexRestore(partial, transportOnly));
+    assert(partial->profilePending && partial->profileSlot == 2 &&
+           partial->inputTransportPending && partial->controllerData &&
+           partial->rawData);
+
+    using asb::platform::detail::ApexRecoveryMode;
+    using asb::platform::detail::ApexRestoreOutcome;
+    using asb::platform::detail::defersApexRestore;
+    using asb::platform::detail::recoveryMarkerUnchanged;
+    using asb::platform::detail::remainingDeferredApexRestore;
+
+    const auto stale = ApexRecoveryMode::StaleSession;
+    const auto own = ApexRecoveryMode::OwnSession;
+    const auto activation = ApexRecoveryMode::SessionActivation;
+    assert(defersApexRestore(stale, ApexRestoreOutcome::Absent));
+    assert(defersApexRestore(stale, ApexRestoreOutcome::Unresponsive));
+    assert(!defersApexRestore(stale, ApexRestoreOutcome::Failed));
+    assert(!defersApexRestore(stale, ApexRestoreOutcome::Restored));
+    assert(!defersApexRestore(own, ApexRestoreOutcome::Absent));
+    assert(!defersApexRestore(own, ApexRestoreOutcome::Unresponsive));
+    assert(defersApexRestore(activation, ApexRestoreOutcome::NotAttempted));
+    assert(!defersApexRestore(activation, ApexRestoreOutcome::Restored));
+
+    ApexSettingsRestore asleep = legacy;
+    asleep.inputTransportPending = false;
+    assert(locateApexRestoreTarget(asleep, {receiver, apex6}, false) ==
+           ApexRestoreTarget::Present);
+    std::optional<ApexSettingsRestore> unanswered;
+    assert(defersApexRestore(stale, ApexRestoreOutcome::Unresponsive) &&
+           mergeDeferredApexRestore(unanswered, asleep));
+    assert(unanswered && unanswered->profilePending && unanswered->profileSlot == 2 &&
+           !unanswered->inputTransportPending);
+    assert(!deferredApexRestoreBlocksSession(*unanswered, apex6));
+    assert(!deferredApexRestoreBlocksSession(*unanswered, cable));
+    assert(deferredApexRestoreBlocksSession(*unanswered, receiver));
+    assert(deferredApexRestoreBlocksSession(*unanswered, replugged));
+
+    assert(!remainingDeferredApexRestore(legacy, true, true));
+    const auto transportLeft = remainingDeferredApexRestore(legacy, true, false);
+    assert(transportLeft && !transportLeft->profilePending &&
+           transportLeft->inputTransportPending && !transportLeft->controllerData &&
+           transportLeft->rawData && transportLeft->vendorPath == legacy.vendorPath);
+    const auto nothingRestored = remainingDeferredApexRestore(legacy, false, false);
+    assert(nothingRestored && nothingRestored->profilePending &&
+           nothingRestored->profileSlot == 2 && nothingRestored->inputTransportPending);
+    assert(!remainingDeferredApexRestore(asleep, true, false));
+
+    assert(recoveryMarkerUnchanged(4242u, 4242u));
+    assert(!recoveryMarkerUnchanged(4243u, 4242u));
+    assert(!recoveryMarkerUnchanged(std::nullopt, 4242u));
+
+    const std::wstring recoveryTree = std::wstring(kRecoveryRegistryKey) + L"\\";
+    assert(kDeferredApexRestoreRegistryKey != kRecoveryRegistryKey);
+    assert(kDeferredApexRestoreRegistryKey.substr(0, recoveryTree.size()) !=
+           recoveryTree);
 
     // Issue #28: DSX keeps HidHide's single-client control device open.
     using asb::platform::detail::describeHidHideControlDenied;

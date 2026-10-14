@@ -4,7 +4,7 @@
 
 namespace asb::platform {
 
-std::vector<HidDeviceInfo> enumerateHidDevices(std::string& error) {
+std::vector<HidDeviceInfo> enumerateHidDevices(std::string& error, HidStringQuery) {
     error = "HID hardware access in v0.2 is implemented for Windows only";
     return {};
 }

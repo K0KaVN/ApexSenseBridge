@@ -35,6 +35,17 @@ struct AsyncWriteStats {
     std::uint64_t maximumWriteUs = 0;
 };
 
+struct AsyncWritePolicy {
+    std::chrono::milliseconds spacing{};
+    std::chrono::milliseconds rumbleHoldoffAfterTrigger{};
+};
+
+struct FeedbackWriteStats {
+    std::uint64_t writes = 0;
+    std::uint64_t slowWrites = 0;
+    std::uint64_t maximumWriteUs = 0;
+};
+
 class Apex5Device {
 public:
     // Historical API name retained for source compatibility. This transport
@@ -57,6 +68,7 @@ public:
 
     bool verifyIdentity(std::string& error,
                         const std::function<bool()>& shouldStop = {});
+    [[nodiscard]] bool identityUnanswered() const noexcept { return identityUnanswered_; }
 
     bool setTrigger(const TriggerEffect& effect, std::string& error);
     bool setTriggerRaw(const ForceTriggerCommand& command, std::string& error);
@@ -111,6 +123,10 @@ public:
                      std::string& error);
     [[nodiscard]] std::uint64_t asyncWriteRetries() const noexcept;
     [[nodiscard]] AsyncWriteStats asyncWriteStats() const noexcept;
+    [[nodiscard]] std::optional<AsyncWritePolicy> asyncWritePolicy() const noexcept;
+    [[nodiscard]] bool asyncWritesRunning() const noexcept;
+    [[nodiscard]] FeedbackWriteStats triggerWriteStats() const noexcept;
+    [[nodiscard]] FeedbackWriteStats rumbleWriteStats() const noexcept;
     bool takeAsyncWriteError(std::string& error);
 
 private:
@@ -122,25 +138,38 @@ private:
     [[nodiscard]] std::unique_lock<std::recursive_mutex> acquireWriteLock() const noexcept;
     [[nodiscard]] bool writeSpacedOutputReport(std::span<const std::uint8_t> report,
                                                std::string& error);
+    [[nodiscard]] bool writeFeedbackReport(std::span<const std::uint8_t> report,
+                                           bool trigger,
+                                           std::string& error);
+    void waitForAsyncWriteSpacing() const;
+    void recordVendorWrite() noexcept;
     void writerLoop();
 
     TransportPtr transport_{};
     std::optional<Apex5Identity> identity_{};
+    bool identityUnanswered_ = false;
     mutable std::unique_ptr<std::recursive_mutex> writeMutex_{std::make_unique<std::recursive_mutex>()};
     std::chrono::steady_clock::time_point lastVendorWriteAt_{};
+    std::chrono::steady_clock::time_point lastTriggerWriteAt_{};
+    AsyncWritePolicy asyncPolicy_{};
     std::thread writer_{};
+    std::atomic<bool> asyncWritesRunning_{false};
     std::mutex queueMutex_{};
     std::condition_variable queueSignal_{};
     std::optional<ForceTriggerCommand> pendingLeftTrigger_{};
     std::optional<ForceTriggerCommand> pendingRightTrigger_{};
     std::optional<std::pair<std::uint8_t, std::uint8_t>> pendingRumble_{};
     std::array<std::chrono::steady_clock::time_point, 3> pendingAt_{};
+    std::chrono::steady_clock::time_point rumblePendingSince_{};
     unsigned nextSlot_ = 0;
     bool writerStopping_ = false;
     std::atomic<bool> asyncWriteFailed_{false};
     std::atomic<std::uint64_t> asyncWriteRetries_{0};
     mutable std::mutex asyncStatsMutex_{};
     AsyncWriteStats asyncStats_{};
+    mutable std::mutex feedbackStatsMutex_{};
+    FeedbackWriteStats triggerWriteStats_{};
+    FeedbackWriteStats rumbleWriteStats_{};
     std::mutex asyncErrorMutex_{};
     std::string asyncError_{};
 };

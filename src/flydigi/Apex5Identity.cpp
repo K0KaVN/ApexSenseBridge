@@ -89,6 +89,11 @@ std::uint8_t Apex5Identity::chargeState() const noexcept {
     return dualsense::toChargeState(charging_, isWired(), batteryPercent());
 }
 
+std::string_view Apex5Identity::connectionName() const noexcept {
+    if (isWired()) return "wired";
+    return protocol_ == ApexProtocol::RealtimeV3 ? "wireless" : "2.4 GHz receiver";
+}
+
 std::optional<Apex5Identity> Apex5Identity::parseApex4Reply(
     std::span<const std::uint8_t> report) {
     // Flydigi V1 replies are 32 bytes and echo GetInfo at byte 15. The device

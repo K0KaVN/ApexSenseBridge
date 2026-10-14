@@ -167,6 +167,26 @@ namespace ApexSenseBridgeTray
                     }));
                 };
 
+                monitorService.AutomaticStartPaused += (gameTitle) =>
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            UpdateTrayStatus();
+                            if (settings.EnableNotifications && notifyIcon != null)
+                            {
+                                notifyIcon.ShowBalloonTip(
+                                    6000,
+                                    LocalizationManager.Get("Loc_NotificationStartPausedTitle"),
+                                    LocalizationManager.Format("Loc_NotificationStartPausedBody", gameTitle),
+                                    ToolTipIcon.Warning);
+                            }
+                        }
+                        catch { }
+                    }));
+                };
+
                 sessionManager.SessionStarted += (game, profile) =>
                 {
                     Dispatcher.BeginInvoke(new Action(() =>

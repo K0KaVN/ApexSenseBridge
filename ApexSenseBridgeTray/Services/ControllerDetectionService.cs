@@ -176,6 +176,13 @@ namespace ApexSenseBridgeTray.Services
             return ParseVerifiedModel(output);
         }
 
+        internal static bool LocksOnboardProfile(string status)
+        {
+            return string.Equals(status, "apex4", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(status, "apex6", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(status, "unsupported", StringComparison.OrdinalIgnoreCase);
+        }
+
         internal static string ParseVerifiedModel(string output)
         {
             output = output ?? string.Empty;

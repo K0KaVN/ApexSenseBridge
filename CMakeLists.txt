@@ -35,6 +35,7 @@ add_library(asb_core STATIC
     src/haptics/HapticProcessor.cpp
     src/platform/Apex6InputFusion.cpp
     src/platform/AudioEndpointProtection.cpp
+    src/platform/HidTransport.cpp
     src/platform/PhysicalInputSource.h
     src/platform/SessionControl.cpp
     src/platform/XInputMapping.cpp
@@ -260,6 +261,15 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME adaptive_trigger_bridge COMMAND ApexSenseBridgeTriggerBridgeTests)
 
+    add_executable(ApexSenseBridgeFeedbackWriterTests tests/test_apex_feedback_writer.cpp)
+    target_link_libraries(ApexSenseBridgeFeedbackWriterTests PRIVATE asb_core)
+    if(MSVC)
+        target_compile_options(ApexSenseBridgeFeedbackWriterTests PRIVATE /W4 /permissive- /EHsc)
+    else()
+        target_compile_options(ApexSenseBridgeFeedbackWriterTests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME apex_feedback_writer COMMAND ApexSenseBridgeFeedbackWriterTests)
+
     add_executable(ApexSenseBridgeRumbleTests tests/test_rumble_bridge.cpp)
     target_link_libraries(ApexSenseBridgeRumbleTests PRIVATE asb_core)
     if(MSVC)
@@ -327,6 +337,18 @@ if(BUILD_TESTING)
     add_test(NAME physical_input_freshness
              COMMAND ApexSenseBridgePhysicalInputFreshnessTests)
 
+    add_executable(ApexSenseBridgePhysicalInputActivityTests
+        tests/test_physical_input_activity.cpp
+    )
+    target_include_directories(ApexSenseBridgePhysicalInputActivityTests PRIVATE src)
+    if(MSVC)
+        target_compile_options(ApexSenseBridgePhysicalInputActivityTests PRIVATE /W4 /permissive- /EHsc)
+    else()
+        target_compile_options(ApexSenseBridgePhysicalInputActivityTests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME physical_input_activity
+             COMMAND ApexSenseBridgePhysicalInputActivityTests)
+
     add_executable(ApexSenseBridgeViewTouchpadGestureTests
         tests/test_view_touchpad_gesture.cpp
         src/dualsense/ViewTouchpadGesture.cpp
@@ -379,6 +401,15 @@ if(BUILD_TESTING)
         target_compile_options(ApexSenseBridgeBridgeRuntimeSupportTests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
     add_test(NAME bridge_runtime_support COMMAND ApexSenseBridgeBridgeRuntimeSupportTests)
+
+    add_executable(ApexSenseBridgeDeviceOpenRetryTests tests/test_device_open_retry.cpp)
+    target_include_directories(ApexSenseBridgeDeviceOpenRetryTests PRIVATE src)
+    if(MSVC)
+        target_compile_options(ApexSenseBridgeDeviceOpenRetryTests PRIVATE /W4 /permissive- /EHsc)
+    else()
+        target_compile_options(ApexSenseBridgeDeviceOpenRetryTests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME device_open_retry COMMAND ApexSenseBridgeDeviceOpenRetryTests)
 
     add_executable(ApexSenseBridgeBridgeTelemetryTests
         tests/test_bridge_telemetry.cpp
@@ -446,6 +477,18 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME physical_isolation_space_station_guard
                  COMMAND ApexSenseBridgePhysicalIsolationWindowsTests)
+
+        add_executable(ApexSenseBridgeHidTransportWindowsTests
+            tests/test_windows_hid_transport.cpp
+        )
+        target_link_libraries(ApexSenseBridgeHidTransportWindowsTests PRIVATE asb_core)
+        if(MSVC)
+            target_compile_options(ApexSenseBridgeHidTransportWindowsTests PRIVATE /W4 /permissive- /EHsc)
+        else()
+            target_compile_options(ApexSenseBridgeHidTransportWindowsTests PRIVATE -Wall -Wextra -Wpedantic)
+        endif()
+        add_test(NAME hid_transport_windows
+                 COMMAND ApexSenseBridgeHidTransportWindowsTests)
 
         add_test(NAME installer_registry_contract
                  COMMAND powershell -NoProfile -NonInteractive

@@ -2,6 +2,7 @@
 
 #include "dualsense/DualSenseInput.h"
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -31,5 +32,28 @@ void mergeApex5MappedControls(
     const std::optional<dualsense::DualSenseInputState>& vendorState,
     std::uint8_t batteryPercent,
     std::uint8_t chargeState) noexcept;
+
+class Apex5InputComposer {
+public:
+    using Clock = std::chrono::steady_clock;
+    static constexpr std::uint8_t kIndependentEngageFloor = 8;
+    static constexpr std::uint8_t kIndependentReleaseFloor = 4;
+    static constexpr auto kTriggerFreshness = std::chrono::milliseconds(50);
+    static constexpr int kStaleTriggerAgreement = 24;
+
+    [[nodiscard]] dualsense::DualSenseInputState compose(
+        const dualsense::DualSenseInputState& mappedState,
+        const std::optional<dualsense::DualSenseInputState>& vendorState,
+        Clock::duration vendorTriggerAge,
+        std::uint8_t batteryPercent,
+        std::uint8_t chargeState) noexcept;
+
+    [[nodiscard]] bool independentTriggers() const noexcept { return independent_; }
+    [[nodiscard]] std::uint64_t triggerSourceSwitches() const noexcept { return switches_; }
+
+private:
+    bool independent_ = false;
+    std::uint64_t switches_ = 0;
+};
 
 } // namespace asb::flydigi
