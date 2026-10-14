@@ -359,8 +359,10 @@ int commandBridgeTriggers(int argc, char** argv) {
     hapticConfig.activationThreshold =
         static_cast<double>(options.hapticThresholdPercent) / 100.0;
     auto adaptiveBridge = !apex6Pro
-        ? std::make_unique<asb::dualsense::AdaptiveTriggerBridge>(*device, options.triggerStrengthPercent)
+        ? std::make_unique<asb::dualsense::AdaptiveTriggerBridge>(
+              *device, options.triggerStrengthPercent, options.zoneEmulation)
         : std::unique_ptr<asb::dualsense::AdaptiveTriggerBridge>{};
+    if (adaptiveBridge) adaptiveBridge->setZoneUnits(asb::dualsense::productionZoneUnits());
     auto apex6Bridge = apex6Pro
         ? std::make_unique<asb::dualsense::Apex6HapticBridge>(
               *device, hapticConfig, options.routeRumble, options.triggerStrengthPercent,
@@ -1240,6 +1242,7 @@ int commandBridgeTriggers(int argc, char** argv) {
                   << neutralizationError << '\n';
     }
     virtualDualSense->close(); // joins the feedback callback before touching the HID device
+    if (adaptiveBridge) adaptiveBridge->quiesce();
     device->stopAsyncWrites(); // no queued effect may overtake the reset below
     std::string apex6ResetError;
     const bool apex6ResetOk = !apex6Bridge || apex6Bridge->stop(apex6ResetError);

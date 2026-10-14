@@ -44,7 +44,20 @@ void writeAdaptiveTriggerDiagnostics(std::ostream& output,
         output << (index == 0 ? "" : ",") << "0x" << std::hex << static_cast<unsigned>(type)
                << std::dec << ':' << count;
     }
-    output << '\n';
+    output << '\n'
+           << "zone_profiles=" << stats.zoneProfiles << '\n'
+           << "zone_transitions=" << stats.zoneTransitions << '\n'
+           << "periodic_profiles=" << stats.periodicProfiles << '\n'
+           << "periodic_transitions=" << stats.periodicTransitions << '\n'
+           << "zone_latency_samples=" << stats.zoneLatencySamples << '\n'
+           << "zone_latency_avg_us="
+           << (stats.zoneLatencySamples != 0 ? stats.zoneLatencyTotalUs / stats.zoneLatencySamples : 0) << '\n'
+           << "zone_latency_max_us=" << stats.zoneLatencyMaxUs << '\n'
+           << "periodic_lateness_samples=" << stats.periodicLatenessSamples << '\n'
+           << "periodic_lateness_avg_us="
+           << (stats.periodicLatenessSamples != 0
+                   ? stats.periodicLatenessTotalUs / stats.periodicLatenessSamples : 0) << '\n'
+           << "periodic_lateness_max_us=" << stats.periodicLatenessMaxUs << '\n';
     for (std::size_t index = 0; index < stats.leftBlocks.size(); ++index) {
         output << "trigger_block_lt_" << index << '=' << stats.leftBlocks[index] << '\n';
     }
