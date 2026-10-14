@@ -5,7 +5,7 @@
 #define ASB_VERSION_MAJOR 1
 #define ASB_VERSION_MINOR 0
 #define ASB_VERSION_PATCH 1
-#define ASB_VERSION_STRING "1.0.1"
+#define ASB_VERSION_STRING "1.0.2"
 #endif
 
 #ifndef ASB_RELEASE_LABEL

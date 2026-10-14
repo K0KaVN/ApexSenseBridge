@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.2
+
 ### Pending APEX 5 restore no longer blocks sessions ([#44](https://github.com/ReynArts/ApexSenseBridge/issues/44), [#45](https://github.com/ReynArts/ApexSenseBridge/issues/45))
 
 - HidHide visibility is always restored first. When the APEX 5 whose profile
