@@ -4,6 +4,11 @@
 
 ## 1.0.2
 
+### Activation automatique des correctifs manuels ([#46](https://github.com/ReynArts/ApexSenseBridge/pull/46))
+
+- Les jeux ayant un correctif manuel compatible peuvent désormais être activés
+  automatiquement. Le Tray affiche le correctif appliqué avec un badge vert.
+
 ### Pending APEX 5 restore no longer blocks sessions ([#44](https://github.com/ReynArts/ApexSenseBridge/issues/44), [#45](https://github.com/ReynArts/ApexSenseBridge/issues/45))
 
 - HidHide visibility is always restored first. When the APEX 5 whose profile
