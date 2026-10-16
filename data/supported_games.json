@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-15T08:55:31.263917+00:00",
-  "totalGames": 220,
+  "updatedAt": "2026-10-16T08:47:50.597022+00:00",
+  "totalGames": 221,
   "discordExecutableGames": 132,
   "games": [
     {
@@ -39,6 +39,17 @@
       "steamAppIdVerified": true,
       "iconUrl": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2288340/a1fb5685d2c140309d5549af1ddc725a7114d889/library_capsule_2x.jpg?t=1791286652",
       "addedAt": "2026-10-06"
+    },
+    {
+      "title": "Active Matter",
+      "normalized": "activematter",
+      "adaptiveTriggers": true,
+      "hapticFeedback": false,
+      "profile": "standard",
+      "steamAppId": 2887580,
+      "steamAppIdVerified": true,
+      "iconUrl": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2887580/f856133f6f7d33f8a38d892a140171fe4c5698d4/library_capsule_2x.jpg?t=1792058040",
+      "addedAt": "2026-10-16"
     },
     {
       "title": "Alan Wake II",
@@ -318,7 +329,7 @@
       "profile": "standard",
       "steamAppId": 1938090,
       "steamAppIdVerified": true,
-      "iconUrl": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1938090/91cbd2965d6353ab4ce37148b5206ee86f1be08a/library_capsule_2x.jpg?t=1791569961",
+      "iconUrl": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1938090/91cbd2965d6353ab4ce37148b5206ee86f1be08a/library_capsule_2x.jpg?t=1792113705",
       "executables": [
         "cod.exe"
       ],
