@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-17T08:18:37.053785+00:00",
+  "updatedAt": "2026-10-18T08:36:55.674371+00:00",
   "totalGames": 221,
-  "discordExecutableGames": 132,
+  "discordExecutableGames": 133,
   "games": [
     {
       "title": "007 First Light",
@@ -1047,14 +1047,17 @@
       "addedAt": "2026-09-01"
     },
     {
-      "title": "Fobia - St. Dinfna Hotel",
+      "title": "Fobia: St. Dinfna Hotel",
       "normalized": "fobiastdinfnahotel",
       "adaptiveTriggers": false,
       "hapticFeedback": true,
       "profile": "standard",
-      "steamAppId": 0,
-      "steamAppIdVerified": false,
-      "iconUrl": "",
+      "steamAppId": 1298140,
+      "steamAppIdVerified": true,
+      "iconUrl": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1298140/library_600x900_2x.jpg?t=1725487910",
+      "executables": [
+        "fobia-win64-shipping.exe"
+      ],
       "addedAt": "2026-09-01"
     },
     {
