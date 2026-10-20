@@ -29,17 +29,87 @@
                 <Setter Property="VerticalAlignment" Value="Center"/>
                 <Setter Property="Margin" Value="0,2,0,0"/>
             </Style>
-            <!-- Same dark dropdown as the executable pickers in the console theme. -->
-            <Style x:Key="RearActionCombo" TargetType="ComboBox" BasedOn="{StaticResource ExecutableCombo}">
+            <!-- Self-contained dark dropdown: the window does not inherit the
+                 executable picker's item style, so popup colors are set here. -->
+            <Style x:Key="RearItemStyle" TargetType="ComboBoxItem">
+                <Setter Property="Foreground" Value="#E6ECFA"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBoxItem">
+                            <Border x:Name="Item" CornerRadius="8" Padding="12,8" Margin="0,1" Background="Transparent">
+                                <ContentPresenter VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsHighlighted" Value="True">
+                                    <Setter TargetName="Item" Property="Background" Value="#22FFFFFF"/>
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="Item" Property="Background" Value="#2C3F72"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="RearActionCombo" TargetType="ComboBox">
                 <Setter Property="Width" Value="170"/>
                 <Setter Property="Height" Value="36"/>
                 <Setter Property="VerticalAlignment" Value="Center"/>
                 <Setter Property="FontSize" Value="13"/>
+                <Setter Property="Foreground" Value="#E6ECFA"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="ItemContainerStyle" Value="{StaticResource RearItemStyle}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBox">
+                            <Grid>
+                                <ToggleButton x:Name="ToggleButton" Focusable="False"
+                                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                              ClickMode="Press">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border x:Name="Shell" CornerRadius="10" Background="#1B2238"
+                                                    BorderThickness="1" BorderBrush="#3A4050">
+                                                <Path Data="M 0,0 L 4,4 L 8,0" Stroke="#8C97B2" StrokeThickness="1.6"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Shell" Property="Background" Value="#252C44"/>
+                                                </Trigger>
+                                                <Trigger Property="IsChecked" Value="True">
+                                                    <Setter TargetName="Shell" Property="BorderBrush" Value="#2979FF"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+                                <ContentPresenter Margin="12,0,30,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  TextElement.Foreground="#E6ECFA"/>
+                                <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                                       VerticalOffset="6" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                                    <Border Background="#121A30" BorderBrush="#3A4050" BorderThickness="1" CornerRadius="12"
+                                            Padding="4" MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                            MaxHeight="260">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <ItemsPresenter/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
         </ResourceDictionary>
     </Window.Resources>
 
-    <Border Style="{StaticResource ConsoleWindowFrame}" MouseLeftButtonDown="OnWindowDrag">
+    <Border Style="{StaticResource ConsoleWindowFrameFlat}" CornerRadius="22" MouseLeftButtonDown="OnWindowDrag">
         <Grid Margin="26,22,26,18">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>

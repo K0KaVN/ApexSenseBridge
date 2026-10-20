@@ -138,8 +138,8 @@ namespace ApexSenseBridgeTray
                     row.Status.Text = "Detected";
                     row.Status.Foreground = Brushes.LightGreen;
                     row.Action.IsEnabled = true;
-                    row.Container.BorderBrush = new SolidColorBrush(Color.FromRgb(41, 121, 255));
-                    row.Container.BorderThickness = new Thickness(2);
+                    row.Container.BorderBrush = new SolidColorBrush(Color.FromRgb(42, 52, 74));
+                    row.Container.BorderThickness = new Thickness(1);
                     TxtRearStatus.Text = buttonEvent.Button + " detected";
                 }
             }));
