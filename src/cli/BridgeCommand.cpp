@@ -321,6 +321,7 @@ int commandBridgeTriggers(int argc, char** argv) {
         return failSession(8, "Mandatory physical-input proxy creation failed: " + error);
     }
     std::string inputBackend(inputSource->backendName());
+    inputSource->setRearButtonBindings(options.rearButtonBindings);
     if (device->identity()) {
         inputSource->setBatteryState(
             device->identity()->batteryPercent(),
@@ -676,6 +677,7 @@ int commandBridgeTriggers(int argc, char** argv) {
                        reopenError);
         }
         inputBackend = std::string(inputSource->backendName());
+        inputSource->setRearButtonBindings(options.rearButtonBindings);
         if (device->identity()) {
             inputSource->setBatteryState(
                 device->identity()->batteryPercent(),
@@ -732,6 +734,7 @@ int commandBridgeTriggers(int argc, char** argv) {
             if (!inputSource) return false;
             if (device->identity()) inputSource->setBatteryState(
                 device->identity()->batteryPercent(), device->identity()->chargeState());
+            inputSource->setRearButtonBindings(options.rearButtonBindings);
             // Never disable controllerData or switch onboard profiles here.
             if (!device->setInputTransport(true, false, restartError) ||
                 !device->setInputTransport(true, true, restartError)) return false;

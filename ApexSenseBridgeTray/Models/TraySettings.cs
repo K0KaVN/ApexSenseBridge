@@ -54,6 +54,9 @@ namespace ApexSenseBridgeTray.Models
         public List<string> ExcludedGames { get; set; }
         public List<string> ManualFixAllowedGames { get; set; }
         public Dictionary<string, int> ApexProfileSlots { get; set; }
+        // Maps each Apex 5 rear button (M1, M2, M3, M4, LM, RM) to a user-chosen
+        // action name. Keys are the button names as produced by RearButtonService.
+        public Dictionary<string, string> RearButtonBindings { get; set; }
         // Legacy scalar preferences remain for migration, not as an active
         // cross-model calibration. Never persist the last connected model.
         public Dictionary<string, ControllerCalibration> ControllerCalibrations { get; set; }
@@ -131,7 +134,8 @@ namespace ApexSenseBridgeTray.Models
             Language = "auto";
             ExcludedGames = new List<string>();
             ManualFixAllowedGames = new List<string>();
-            ApexProfileSlots = new Dictionary<string, int>();
+                        ApexProfileSlots = new Dictionary<string, int>();
+            RearButtonBindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
 
         public bool IsGameExcluded(string normalizedOrTitle)
@@ -330,6 +334,10 @@ namespace ApexSenseBridgeTray.Models
                         if (settings.ApexProfileSlots == null)
                         {
                             settings.ApexProfileSlots = new Dictionary<string, int>();
+                        }
+                        if (settings.RearButtonBindings == null)
+                        {
+                            settings.RearButtonBindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                         }
                         return settings;
                     }

@@ -4,6 +4,7 @@
 #include "dualsense/DualSenseInput.h"
 #include "platform/PhysicalInputActivity.h"
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -54,9 +55,14 @@ public:
     // source is only gameplay-ready while its independent stream is live.
     [[nodiscard]] virtual bool requiresIndependentTriggers() const noexcept { return false; }
     [[nodiscard]] virtual bool independentTriggersReady() const noexcept { return true; }
-    virtual void setBatteryState(std::uint8_t batteryPercent, std::uint8_t chargeState) noexcept {
+        virtual void setBatteryState(std::uint8_t batteryPercent, std::uint8_t chargeState) noexcept {
         (void)batteryPercent;
         (void)chargeState;
+    }
+    // One output bit per rear button (M1, M2, M3, M4, LM, RM); 0 means unbound.
+    // Applied after controller composition so the vendor-merge step cannot erase it.
+    virtual void setRearButtonBindings(const std::array<std::uint16_t, 6>& bits) noexcept {
+        (void)bits;
     }
 };
 

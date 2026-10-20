@@ -490,7 +490,8 @@ namespace ApexSenseBridgeTray.Services
             var arguments = BridgeArguments.Build(
                 profileName, false, 12, false, apexProfileSlot,
                 enableUdpTriggers: settings != null && settings.EnableUdpTriggers,
-                udpPort: settings != null ? settings.UdpPort : 10026);
+                udpPort: settings != null ? settings.UdpPort : 10026,
+                rearButtonBindings: settings != null ? settings.RearButtonBindings : null);
             // Send all model profiles; only the engine's verified device selects
             // one. A stale UI label / hot swap can never select another model's data.
             return arguments + (settings != null ? settings.BuildControllerCalibrationArguments() : string.Empty);

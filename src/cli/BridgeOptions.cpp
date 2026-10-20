@@ -1,6 +1,7 @@
 #include "cli/BridgeOptions.h"
 
 #include "flydigi/Apex5Protocol.h"
+#include "platform/RearButtonBindings.h"
 #include "platform/SessionControl.h"
 
 #include <algorithm>
@@ -258,6 +259,15 @@ bool parseBridgeOptions(int argc, char** argv, BridgeCommandOptions& options,
                 options.sessionOwnerProcessId = static_cast<std::uint32_t>(parsed);
             } catch (...) {
                 error = "--session-owner-pid requires a non-zero Windows process ID.";
+                return false;
+            }
+        } else if (value == "--rear-map") {
+            if (++i >= argc) {
+                error = "--rear-map requires entries like M1=Cross,M2=None (M1-M4, LM, RM).";
+                return false;
+            }
+            if (!asb::platform::rear::parseRearMap(argv[i], options.rearButtonBindings)) {
+                error = "Unknown --rear-map entry. Use M1..M4, LM, RM as keys and a known action name as value.";
                 return false;
             }
         } else if (value == "--apex-profile") {

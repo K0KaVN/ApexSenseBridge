@@ -87,8 +87,10 @@ void printUsage() {
         << "                               Temporarily switch an Apex 5 profile, then restore it\n"
         << "  test-rgb [index] [R G B | #RRGGBB]\n"
         << "                               Test direct Apex 5 RGB lighting with backup/restore\n"
-        << "  test-gyro [index] [--seconds N] [--stream] [--json]\n"
+                << "  test-gyro [index] [--seconds N] [--stream] [--json]\n"
         << "                               Test 6-axis motion sensor (gyroscope & accelerometer)\n"
+        << "  test-rear [index] [--seconds N] [--stream]\n"
+        << "                               Test Apex 5 rear buttons (M1-M4, LM, RM); restores input routing on exit\n"
         << "  apex4-port-test [index] [--seconds N] [--rumble] [--forceadapt]\n"
         << "                               Validate APEX 4 input/effects with one identity exchange\n"
         << "  apex4-gyro-capture [index] [--phase-seconds N] [--output PATH]\n"
@@ -238,8 +240,11 @@ int run(int argc, char** argv) {
     if (command == "test-rgb") {
         return commandTestRgb(argc, argv);
     }
-    if (command == "test-gyro") {
+        if (command == "test-gyro") {
         return commandTestGyro(argc, argv);
+    }
+    if (command == "test-rear") {
+        return commandTestRear(argc, argv);
     }
     if (command == "apex4-port-test") {
         return commandApex4PortTest(argc, argv);
