@@ -134,7 +134,7 @@ namespace ApexSenseBridgeTray.Models
             Language = "auto";
             ExcludedGames = new List<string>();
             ManualFixAllowedGames = new List<string>();
-                        ApexProfileSlots = new Dictionary<string, int>();
+            ApexProfileSlots = new Dictionary<string, int>();
             RearButtonBindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
 
