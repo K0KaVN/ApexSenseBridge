@@ -54,7 +54,7 @@ decodeApex5InputReport(std::span<const std::uint8_t> report,
     snapshot.leftTrigger = report[16];
     snapshot.rightTrigger = report[17];
 
-        const auto primary = report[12];
+    const auto primary = report[12];
     const auto secondary = report[13];
     // Byte 14 carries the M1-M4 / LM / RM bits; it is decoded separately and
     // deliberately kept out of the XInput button mask.

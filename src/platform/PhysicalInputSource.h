@@ -55,7 +55,7 @@ public:
     // source is only gameplay-ready while its independent stream is live.
     [[nodiscard]] virtual bool requiresIndependentTriggers() const noexcept { return false; }
     [[nodiscard]] virtual bool independentTriggersReady() const noexcept { return true; }
-        virtual void setBatteryState(std::uint8_t batteryPercent, std::uint8_t chargeState) noexcept {
+    virtual void setBatteryState(std::uint8_t batteryPercent, std::uint8_t chargeState) noexcept {
         (void)batteryPercent;
         (void)chargeState;
     }

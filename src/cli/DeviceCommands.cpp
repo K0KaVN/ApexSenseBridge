@@ -1695,7 +1695,7 @@ int commandTestGyro(int argc, char** argv) {
                   << "Orientation: Pitch=" << static_cast<int>(pitchDeg) << " deg  Roll=" << static_cast<int>(rollDeg) << " deg\n";
     }
 
-        return received ? 0 : 5;
+    return received ? 0 : 5;
 }
 
 int commandTestRear(int argc, char** argv) {
