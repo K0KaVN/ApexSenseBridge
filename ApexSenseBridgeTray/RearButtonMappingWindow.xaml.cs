@@ -1,4 +1,4 @@
-using ApexSenseBridgeTray.Common;
+﻿using ApexSenseBridgeTray.Common;
 using ApexSenseBridgeTray.Models;
 using ApexSenseBridgeTray.Services;
 using System;
@@ -38,7 +38,6 @@ namespace ApexSenseBridgeTray
         {
             this.settings = settings ?? TraySettings.Load();
             InitializeComponent();
-            WindowCorners.ApplyRounded(this);
 
             service = new RearButtonService();
             BuildRows();
@@ -138,8 +137,8 @@ namespace ApexSenseBridgeTray
                     row.Status.Text = "Detected";
                     row.Status.Foreground = Brushes.LightGreen;
                     row.Action.IsEnabled = true;
-                    row.Container.BorderBrush = new SolidColorBrush(Color.FromRgb(42, 52, 74));
-                    row.Container.BorderThickness = new Thickness(1);
+                    row.Container.BorderBrush = new SolidColorBrush(Color.FromArgb(0x55, 0x5B, 0x8C, 0xFF));
+                    row.Container.BorderThickness = new Thickness(2);
                     TxtRearStatus.Text = buttonEvent.Button + " detected";
                 }
             }));

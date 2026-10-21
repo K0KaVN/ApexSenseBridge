@@ -1,4 +1,4 @@
-<Window x:Class="ApexSenseBridgeTray.RearButtonMappingWindow"
+﻿<Window x:Class="ApexSenseBridgeTray.RearButtonMappingWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Rear Buttons" Height="640" Width="560"
@@ -140,9 +140,8 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="TxtRearStatus" VerticalAlignment="Center" Foreground="#AEB9D3" FontSize="12" TextWrapping="Wrap"/>
-                <Button x:Name="BtnSaveRearBindings" Grid.Column="1" Content="Save" Padding="22,8"
-                        Background="{DynamicResource PlayStationBlue}" Foreground="White"
-                        BorderThickness="0" FontSize="14" FontWeight="SemiBold" Cursor="Hand"
+                <Button x:Name="BtnSaveRearBindings" Grid.Column="1" Content="Save"
+                        Style="{StaticResource BtnPrimary}" FontSize="14"
                         Click="OnSaveRearBindingsClick"/>
             </Grid>
         </Grid>
